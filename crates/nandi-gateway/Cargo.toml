@@ -24,7 +24,7 @@ parking_lot.workspace = true
 base64.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "io-util", "io-std", "process", "time", "sync", "signal", "fs"] }
 hyper = { version = "1", features = ["server", "client", "http1", "http2"] }
-hyper-util = { version = "0.1", features = ["tokio", "server", "server-auto", "client-legacy", "http1", "http2"] }
+hyper-util = { version = "0.1", features = ["tokio", "server", "server-auto", "server-graceful", "client-legacy", "http1", "http2"] }
 http-body-util = "0.1"
 http = "1"
 bytes = "1"
