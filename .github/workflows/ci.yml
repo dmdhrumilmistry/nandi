@@ -77,7 +77,9 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y musl-tools
       - run: cargo build --release --locked --workspace --target ${{ matrix.target }}
       - name: Smoke test and footprint
+        shell: bash
         run: |
+          set -euo pipefail
           BIN=target/${{ matrix.target }}/release/nandi
           ls -la "$BIN"
           file "$BIN"
@@ -90,9 +92,10 @@ jobs:
           RSS=$(awk '/VmRSS/ {print $2}' /proc/$PID/status)
           SIZE=$(stat -c %s "$BIN")
           kill $PID; wait $PID || true
-          "$BIN" eval --dir eval/scenarios --min-detection 1.0 --max-false-positives 0.0 | tail -2
+          echo "binary: $SIZE bytes, idle RSS: $RSS KiB"
           echo "### ${{ matrix.target }}" >> "$GITHUB_STEP_SUMMARY"
           echo "binary: $((SIZE / 1024 / 1024)) MiB, idle RSS: $((RSS / 1024)) MiB" >> "$GITHUB_STEP_SUMMARY"
+          "$BIN" eval --dir eval/scenarios --min-detection 1.0 --max-false-positives 0.0
 
   eval:
     runs-on: ubuntu-latest
