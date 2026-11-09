@@ -76,8 +76,23 @@ jobs:
           key: ${{ matrix.target }}
       - run: sudo apt-get update && sudo apt-get install -y musl-tools
       - run: cargo build --release --locked --workspace --target ${{ matrix.target }}
-      - name: Binary size
-        run: ls -la target/${{ matrix.target }}/release/ | grep -E 'nandi( |$)' || true
+      - name: Smoke test and footprint
+        run: |
+          BIN=target/${{ matrix.target }}/release/nandi
+          ls -la "$BIN"
+          file "$BIN"
+          DIR=$(mktemp -d)
+          "$BIN" init --dir "$DIR" >/dev/null
+          "$BIN" policy validate -c "$DIR/nandi.yaml"
+          "$BIN" run -c "$DIR/nandi.yaml" & PID=$!
+          for i in $(seq 1 30); do curl -sf http://127.0.0.1:8788/healthz >/dev/null && break; sleep 0.5; done
+          curl -sf http://127.0.0.1:8788/healthz
+          RSS=$(awk '/VmRSS/ {print $2}' /proc/$PID/status)
+          SIZE=$(stat -c %s "$BIN")
+          kill $PID; wait $PID || true
+          "$BIN" eval --dir eval/scenarios --min-detection 1.0 --max-false-positives 0.0 | tail -2
+          echo "### ${{ matrix.target }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "binary: $((SIZE / 1024 / 1024)) MiB, idle RSS: $((RSS / 1024)) MiB" >> "$GITHUB_STEP_SUMMARY"
 
   eval:
     runs-on: ubuntu-latest

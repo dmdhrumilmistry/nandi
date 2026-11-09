@@ -43,9 +43,17 @@ struct Entry {
     eval_ns: u64,
 }
 
+// Entries dominate the queue; boxing them would add an allocation per event.
+#[allow(clippy::large_enum_variant)]
+enum Msg {
+    Entry(Entry),
+    /// Answered once everything queued before it has been written.
+    Flush(tokio::sync::oneshot::Sender<()>),
+}
+
 #[derive(Clone)]
 pub struct Recorder {
-    tx: mpsc::Sender<Entry>,
+    tx: mpsc::Sender<Msg>,
     live: broadcast::Sender<Arc<LiveEvent>>,
     metrics: Arc<Metrics>,
 }
@@ -68,8 +76,17 @@ impl Recorder {
 
     /// Queue an evaluated event. Never blocks.
     pub fn record(&self, event: Event, decision: Decision, applied: Verdict, eval_ns: u64) {
-        if self.tx.try_send(Entry { event, decision, applied, eval_ns }).is_err() {
+        if self.tx.try_send(Msg::Entry(Entry { event, decision, applied, eval_ns })).is_err() {
             self.metrics.recorder_dropped.fetch_add(1, Relaxed);
+        }
+    }
+
+    /// Wait until everything recorded so far is persisted and published
+    /// (shutdown). Gives up after five seconds.
+    pub async fn flush(&self) {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        if self.tx.send(Msg::Flush(tx)).await.is_ok() {
+            let _ = tokio::time::timeout(Duration::from_secs(5), rx).await;
         }
     }
 
@@ -89,31 +106,45 @@ struct Worker {
 }
 
 impl Worker {
-    async fn run(self, mut rx: mpsc::Receiver<Entry>) {
+    async fn run(self, mut rx: mpsc::Receiver<Msg>) {
         let otlp_headers: Vec<(String, String)> = self
             .telemetry
             .otlp_headers
             .iter()
             .filter_map(|(k, v)| resolve_secret(v).ok().map(|v| (k.clone(), v)))
             .collect();
-        let mut buf: Vec<Entry> = Vec::with_capacity(BATCH);
+        let mut msgs: Vec<Msg> = Vec::with_capacity(BATCH);
         loop {
-            let n = rx.recv_many(&mut buf, BATCH).await;
+            let n = rx.recv_many(&mut msgs, BATCH).await;
             if n == 0 {
                 break;
             }
-            // Let a burst accumulate briefly so audit writes are batched.
-            if buf.len() < BATCH {
+            // Let a burst accumulate briefly so audit writes are batched,
+            // unless someone is waiting on a flush.
+            let waiting = msgs.iter().any(|m| matches!(m, Msg::Flush(_)));
+            if msgs.len() < BATCH && !waiting {
                 tokio::time::sleep(Duration::from_millis(20)).await;
-                while buf.len() < BATCH {
+                while msgs.len() < BATCH {
                     match rx.try_recv() {
-                        Ok(e) => buf.push(e),
+                        Ok(m) => msgs.push(m),
                         Err(_) => break,
                     }
                 }
             }
-            let batch = std::mem::take(&mut buf);
-            self.flush(batch, &otlp_headers).await;
+            let mut batch = Vec::with_capacity(msgs.len());
+            let mut waiters = Vec::new();
+            for m in msgs.drain(..) {
+                match m {
+                    Msg::Entry(e) => batch.push(e),
+                    Msg::Flush(w) => waiters.push(w),
+                }
+            }
+            if !batch.is_empty() {
+                self.flush(batch, &otlp_headers).await;
+            }
+            for w in waiters {
+                let _ = w.send(());
+            }
         }
     }
 

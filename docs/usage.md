@@ -141,6 +141,26 @@ In `~/.claude/settings.json` (all projects) or `.claude/settings.json`:
 `PreToolUse` gates tool calls, `PostToolUse` feeds tool output into taint
 tracking and detection, and `UserPromptSubmit` scans prompts.
 
+How verdicts map to Claude Code:
+
+- **allow**: no output, so Claude Code's own permission rules still apply
+  (nandi never silently approves something your settings would ask about).
+- **deny**: `permissionDecision: "deny"` with nandi's reason, which the
+  model sees and can adapt to.
+- **ask**: `permissionDecision: "ask"`, handing the decision to Claude Code's
+  own prompt instead of nandi's approval queue.
+- **redact**: the call proceeds with `updatedInput` carrying the redacted
+  arguments.
+- Findings in tool output (for example an injection in a fetched page) are
+  returned as `additionalContext` warning the model that the content is
+  untrusted data; a deny verdict blocks with `decision: "block"`.
+- Prompts are blocked when they would leak a secret, since prompts cannot be
+  rewritten.
+
+MCP tools appear in Claude Code as `mcp__<server>__<tool>` and are mapped to
+`<server>/<tool>` for policies; built-in tools (Bash, Read, Edit, WebFetch,
+...) use the server name `local`, e.g. `local/Bash`.
+
 ### Cursor
 
 In `~/.cursor/hooks.json` or `<project>/.cursor/hooks.json`:
@@ -152,13 +172,24 @@ In `~/.cursor/hooks.json` or `<project>/.cursor/hooks.json`:
     "beforeShellExecution": [{ "command": "nandi hook cursor -c /path/nandi.yaml" }],
     "beforeMCPExecution": [{ "command": "nandi hook cursor -c /path/nandi.yaml" }],
     "beforeReadFile": [{ "command": "nandi hook cursor -c /path/nandi.yaml" }],
+    "beforeSubmitPrompt": [{ "command": "nandi hook cursor -c /path/nandi.yaml" }],
+    "afterShellExecution": [{ "command": "nandi hook cursor -c /path/nandi.yaml" }],
+    "afterMCPExecution": [{ "command": "nandi hook cursor -c /path/nandi.yaml" }],
     "afterFileEdit": [{ "command": "nandi hook cursor -c /path/nandi.yaml" }]
   }
 }
 ```
 
+Shell commands map to `local/shell` (`{"command": ...}`), MCP calls to
+`<server>/<tool>` and file reads to `local/read_file`. Cursor receives
+`{"permission": "allow" | "deny" | "ask", "user_message", "agent_message"}`;
+`after*` events are recorded and feed taint tracking. Cursor treats missing
+output on permission hooks as a block, so nandi always answers explicitly.
+
 Any other agent that can run a command before a tool call can use
-`nandi hook generic`.
+`nandi hook generic` with `{"agent", "session", "server", "tool", "args"}` (or
+`{"event": <nandi event>}`) on stdin. It prints
+`{"verdict", "reason", "decision"}` and exits 0 when allowed, 2 when denied.
 
 ## Writing and testing policy
 

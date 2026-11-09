@@ -10,6 +10,8 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use anyhow::{Context, bail};
+use std::sync::Arc;
+
 use clap::{Parser, Subcommand};
 use tokio::sync::watch;
 
@@ -163,6 +165,25 @@ enum Cmd {
         #[arg(long)]
         force: bool,
     },
+    /// Run the attack / false-positive evaluation corpus against the
+    /// current engine (`eval/scenarios` in the repository).
+    Eval {
+        /// Directory of scenario YAML files.
+        #[arg(long, default_value = "eval/scenarios")]
+        dir: PathBuf,
+        /// Print the full report as JSON.
+        #[arg(long)]
+        json: bool,
+        /// Fail when the attack detection rate is below this (0.0 - 1.0).
+        #[arg(long, default_value_t = 0.0)]
+        min_detection: f64,
+        /// Fail when the false-positive rate is above this (0.0 - 1.0).
+        #[arg(long, default_value_t = 1.0)]
+        max_false_positives: f64,
+    },
+    /// Watch agent processes on this host and print the sensor events
+    /// (the same sensor `run` starts when `sensor.enabled` is set).
+    Sense,
     /// Print the version.
     Version,
 }
@@ -320,6 +341,9 @@ async fn run(config: &Path, log_level: &str) -> anyhow::Result<()> {
         tracing::info!("shutting down");
         let _ = stop.send(true);
     });
+    if app.cfg.sensor.enabled {
+        start_sensor(app.clone(), wait_for(rx.clone()));
+    }
     let mut proxy_task = tokio::spawn(proxy::serve(app.clone(), wait_for(rx.clone())));
     let mut admin_task = if app.cfg.admin.listen.trim().is_empty() {
         let rx = rx.clone();
@@ -337,14 +361,57 @@ async fn run(config: &Path, log_level: &str) -> anyhow::Result<()> {
     };
     let _ = tx.send(true);
     let second = tokio::time::timeout(Duration::from_secs(10), other).await;
+    app.recorder.flush().await;
     app.shutdown();
-    // Give the recorder a moment to write its last batch.
-    tokio::time::sleep(Duration::from_millis(200)).await;
     first.context("listener task panicked")?.with_context(|| format!("{first_name} listener"))?;
     if let Ok(r) = second {
         r.context("listener task panicked")??;
     }
     Ok(())
+}
+
+/// Run the host sensor inside the gateway so its events are correlated with
+/// the tool calls the gateway sees.
+fn start_sensor(app: Arc<App>, shutdown: impl std::future::Future<Output = ()> + Send + 'static) {
+    #[cfg(target_os = "linux")]
+    {
+        let (tx, mut rx) = tokio::sync::mpsc::channel(1024);
+        let cfg = app.cfg.sensor.clone();
+        tokio::spawn(async move {
+            if let Err(e) = nandi_sense::procfs::run(cfg, tx, shutdown).await {
+                tracing::error!(error = %e, "host sensor stopped");
+            }
+        });
+        tokio::spawn(async move {
+            while let Some(ev) = rx.recv().await {
+                app.decide(ev, &[]).await;
+            }
+        });
+        tracing::info!("host sensor started (procfs backend)");
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = (app, shutdown);
+        tracing::warn!("sensor.enabled is set but the host sensor is only available on Linux");
+    }
+}
+
+async fn sense_print(cfg: nandi_core::config::SensorConfig) -> anyhow::Result<()> {
+    #[cfg(target_os = "linux")]
+    {
+        let (tx, mut rx) = tokio::sync::mpsc::channel(1024);
+        let task = tokio::spawn(nandi_sense::procfs::run(cfg, tx, termination()));
+        while let Some(ev) = rx.recv().await {
+            println!("{}", serde_json::to_string(&ev)?);
+        }
+        task.await??;
+        Ok(())
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = cfg;
+        bail!("the host sensor is only available on Linux")
+    }
 }
 
 fn sanitize(name: &str) -> String {
@@ -360,8 +427,8 @@ async fn wrap(config: &Path, opts: WrapOptions) -> anyhow::Result<i32> {
     }
     let app = App::build(cfg, &base, None)?;
     let code = stdio::run(app.clone(), opts).await;
+    app.recorder.flush().await;
     app.shutdown();
-    tokio::time::sleep(Duration::from_millis(100)).await;
     code
 }
 
@@ -531,6 +598,23 @@ async fn dispatch(cli: Cli) -> anyhow::Result<i32> {
         }
         Cmd::Init { dir, force } => {
             init::run(&dir, force)?;
+            Ok(0)
+        }
+        Cmd::Eval { dir, json, min_detection, max_false_positives } => {
+            let scenarios = nandi_eval::load_dir(&dir)?;
+            let report = nandi_eval::run(&scenarios, None);
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                print!("{}", nandi_eval::render(&report));
+            }
+            let s = &report.summary;
+            let ok = s.detection_rate >= min_detection && s.false_positive_rate <= max_false_positives;
+            Ok(if ok { 0 } else { 1 })
+        }
+        Cmd::Sense => {
+            let (cfg, _) = load_config(config)?;
+            sense_print(cfg.sensor).await?;
             Ok(0)
         }
         Cmd::Version => {

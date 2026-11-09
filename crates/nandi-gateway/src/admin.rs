@@ -616,7 +616,7 @@ async fn hook_endpoint(State(st): State<AdminState>, Path(format): Path<String>,
     let input: Value =
         serde_json::from_slice(&body).map_err(|e| ApiError::bad_request(format!("invalid JSON payload: {e}")))?;
     let r = hook::handle(&st.app, format, input).await;
-    ok_json(json!({ "stdout": r.stdout, "stderr": r.stderr, "exit_code": r.exit_code }))
+    ok_json(serde_json::to_value(crate::hook::HookWire::from(r)).unwrap_or_default())
 }
 
 #[cfg(test)]
