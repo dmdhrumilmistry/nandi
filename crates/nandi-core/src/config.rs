@@ -323,8 +323,14 @@ pub struct TaintConfig {
     /// Tool globs (`server/tool` or `tool`) whose output is trusted. All other
     /// tool output and inbound A2A messages are untrusted.
     pub trusted_sources: Vec<String>,
-    /// Tool globs that cause external side effects (send, write, pay, exec).
+    /// Tool globs that cause external side effects (send, post, pay, exec).
+    /// Reads and local file writes are deliberately not included: copying
+    /// read content into a file is normal agent work.
     pub consequential: Vec<String>,
+    /// Domains whose e-mail addresses and URLs may flow from untrusted
+    /// content into consequential calls (e.g. your own company domain).
+    /// Subdomains match too.
+    pub trusted_domains: Vec<String>,
     /// Verdict when a consequential tool runs in a tainted session.
     pub on_tainted_call: Verdict,
     /// Stronger verdict when the arguments carry values copied from
@@ -340,23 +346,28 @@ impl Default for TaintConfig {
         Self {
             enabled: true,
             trusted_sources: Vec::new(),
-            consequential: vec![
-                "*send*".into(),
-                "*email*".into(),
-                "*post*".into(),
-                "*write*".into(),
-                "*delete*".into(),
-                "*exec*".into(),
-                "*shell*".into(),
-                "*bash*".into(),
-                "*run*".into(),
-                "*pay*".into(),
-                "*transfer*".into(),
-                "*upload*".into(),
-                "*push*".into(),
-                "*http*".into(),
-                "*fetch*".into(),
-            ],
+            consequential: [
+                "*send*",
+                "*post*",
+                "*delete*",
+                "*remove*",
+                "*exec*",
+                "*shell*",
+                "*bash*",
+                "*command*",
+                "*pay*",
+                "*transfer*",
+                "*upload*",
+                "*push*",
+                "*publish*",
+                "*invite*",
+                "*share*",
+                "*wire*",
+            ]
+            .into_iter()
+            .map(String::from)
+            .collect(),
+            trusted_domains: Vec::new(),
             on_tainted_call: Verdict::Alert,
             on_tainted_flow: Verdict::Ask,
             min_flow_len: 12,

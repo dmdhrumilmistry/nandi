@@ -1,0 +1,44 @@
+# Runaway behaviour and resource abuse.
+- name: identical-call-loop
+  kind: attack
+  category: behavior
+  reference: Agent loop detection
+  config: { behavior: { loop_threshold: 4 } }
+  steps:
+    - call: { server: search, tool: query, args: { q: weather } }
+    - call: { server: search, tool: query, args: { q: weather } }
+    - call: { server: search, tool: query, args: { q: weather } }
+    - call: { server: search, tool: query, args: { q: weather } }
+      expect: flag
+      rules: [behavior.loop]
+
+- name: call-rate-limit
+  kind: attack
+  category: behavior
+  reference: Rate limiting
+  config: { behavior: { max_calls_per_minute: 3 } }
+  steps:
+    - call: { server: db, tool: query, args: { q: 1 } }
+    - call: { server: db, tool: query, args: { q: 2 } }
+    - call: { server: db, tool: query, args: { q: 3 } }
+    - call: { server: db, tool: query, args: { q: 4 } }
+      expect: block
+      rules: [ratelimit.tool-calls]
+
+- name: token-budget-exhausted
+  kind: attack
+  category: behavior
+  reference: Token budgets
+  config:
+    budgets: [ { agent: "*", tokens_per_day: 100 } ]
+  steps:
+    - event:
+        type: llm_response
+        provider: openai
+        model: gpt-x
+        usage: { input: 150, output: 60 }
+        tool_calls: []
+        text: ok
+    - user: one more question
+      expect: block
+      rules: [budget.tokens]
