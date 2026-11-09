@@ -1,0 +1,17 @@
+[package]
+name = "nandi-detect"
+description = "Fast deterministic content scanners for nandi: secrets, PII, honeytokens, injection, SSRF and tool poisoning"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+nandi-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+aho-corasick.workspace = true
+regex.workspace = true
+base64.workspace = true
