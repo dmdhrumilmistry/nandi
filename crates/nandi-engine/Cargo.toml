@@ -1,0 +1,18 @@
+[package]
+name = "nandi-engine"
+description = "Session state and the inspection pipeline that turns agent events into decisions"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+nandi-core.workspace = true
+nandi-detect.workspace = true
+nandi-policy.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+parking_lot.workspace = true
+tracing.workspace = true

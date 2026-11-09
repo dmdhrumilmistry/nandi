@@ -1313,6 +1313,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "nandi-engine"
+version = "0.1.0"
+dependencies = [
+ "nandi-core",
+ "nandi-detect",
+ "nandi-policy",
+ "parking_lot 0.13.0",
+ "serde",
+ "serde_json",
+ "tracing",
+]
+
+[[package]]
 name = "nandi-identity"
 version = "0.1.0"
 dependencies = [
