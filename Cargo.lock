@@ -1694,6 +1694,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "nandi-eval"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "nandi-core",
+ "nandi-engine",
+ "nandi-policy",
+ "serde",
+ "serde-saphyr",
+ "serde_json",
+]
+
+[[package]]
 name = "nandi-gateway"
 version = "0.1.0"
 dependencies = [
@@ -1766,6 +1779,15 @@ dependencies = [
  "nandi-core",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "nandi-sense"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "nandi-core",
+ "tokio",
 ]
 
 [[package]]

