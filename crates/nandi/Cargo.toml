@@ -12,6 +12,12 @@ authors.workspace = true
 name = "nandi"
 path = "src/main.rs"
 
+[features]
+default = []
+# mimalloc is faster under heavy multi-threaded load but its eager arena
+# commit costs ~25 MB of idle RSS; the system allocator is the default.
+mimalloc = ["dep:mimalloc"]
+
 [dependencies]
 nandi-core.workspace = true
 nandi-engine.workspace = true
@@ -30,7 +36,7 @@ tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal", "
 http = "1"
 http-body-util = "0.1"
 bytes = "1"
-mimalloc = { version = "0.1", default-features = false }
+mimalloc = { version = "0.1", default-features = false, optional = true }
 
 [dev-dependencies]
 tempfile = "3"

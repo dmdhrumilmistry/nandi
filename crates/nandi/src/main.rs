@@ -22,6 +22,7 @@ use nandi_gateway::{App, admin, hook, proxy, stdio};
 
 use remote::{AdminOpts, ApprovalsCmd, PinsCmd, Remote};
 
+#[cfg(feature = "mimalloc")]
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
@@ -455,14 +456,28 @@ fn exit_with(code: i32) -> ! {
 
 fn main() {
     let cli = Cli::parse();
-    let rt = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
-        Ok(rt) => rt,
-        Err(e) => {
-            eprintln!("error: starting runtime: {e}");
-            exit_with(1);
-        }
+    // Run everything on threads with explicit stacks. Static musl builds
+    // report a small main-thread stack, which makes Cedar's stack guard
+    // refuse to evaluate policies.
+    let workers = std::env::var("NANDI_WORKER_THREADS")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .filter(|n| *n > 0)
+        .unwrap_or_else(|| std::thread::available_parallelism().map(|n| n.get()).unwrap_or(2).min(4));
+    let main = std::thread::Builder::new().name("nandi-main".into()).stack_size(8 << 20).spawn(move || {
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(workers)
+            .thread_stack_size(2 << 20)
+            .enable_all()
+            .build()
+            .map_err(|e| anyhow::anyhow!("starting runtime: {e}"))?;
+        rt.block_on(dispatch(cli))
+    });
+    let result = match main {
+        Ok(handle) => handle.join().unwrap_or_else(|_| Err(anyhow::anyhow!("main thread panicked"))),
+        Err(e) => Err(anyhow::anyhow!("spawning main thread: {e}")),
     };
-    match rt.block_on(dispatch(cli)) {
+    match result {
         Ok(code) => exit_with(code),
         Err(e) if broken_pipe(&e) => exit_with(0),
         Err(e) => {
