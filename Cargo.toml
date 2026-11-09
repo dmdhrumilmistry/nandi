@@ -11,16 +11,16 @@ repository = "https://github.com/dmdhrumilmistry/nandi"
 authors = ["Dhrumil Mistry"]
 
 [workspace.dependencies]
-nandi-core = { path = "crates/nandi-core" }
-nandi-detect = { path = "crates/nandi-detect" }
-nandi-policy = { path = "crates/nandi-policy" }
-nandi-audit = { path = "crates/nandi-audit" }
-nandi-identity = { path = "crates/nandi-identity" }
-nandi-proto = { path = "crates/nandi-proto" }
-nandi-engine = { path = "crates/nandi-engine" }
-nandi-gateway = { path = "crates/nandi-gateway" }
-nandi-sense = { path = "crates/nandi-sense" }
-nandi-ml = { path = "crates/nandi-ml" }
+nandi-core = { path = "crates/nandi-core", version = "0.1.0" }
+nandi-detect = { path = "crates/nandi-detect", version = "0.1.0" }
+nandi-policy = { path = "crates/nandi-policy", version = "0.1.0" }
+nandi-audit = { path = "crates/nandi-audit", version = "0.1.0" }
+nandi-identity = { path = "crates/nandi-identity", version = "0.1.0" }
+nandi-proto = { path = "crates/nandi-proto", version = "0.1.0" }
+nandi-engine = { path = "crates/nandi-engine", version = "0.1.0" }
+nandi-gateway = { path = "crates/nandi-gateway", version = "0.1.0" }
+nandi-sense = { path = "crates/nandi-sense", version = "0.1.0" }
+nandi-ml = { path = "crates/nandi-ml", version = "0.1.0" }
 
 anyhow = "1"
 thiserror = "2"
