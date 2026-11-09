@@ -78,3 +78,17 @@ jobs:
       - run: cargo build --release --locked --workspace --target ${{ matrix.target }}
       - name: Binary size
         run: ls -la target/${{ matrix.target }}/release/ | grep -E 'nandi( |$)' || true
+
+  eval:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: eval
+      - name: Attack and false-positive evaluation (release build)
+        run: cargo test --release --locked -p nandi-eval -- --nocapture bundled_corpus 2>&1 | tee eval.txt
+      - name: Summary
+        if: always()
+        run: grep -A40 '^category' eval.txt >> "$GITHUB_STEP_SUMMARY" || true

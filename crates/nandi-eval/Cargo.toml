@@ -1,0 +1,18 @@
+[package]
+name = "nandi-eval"
+description = "Scenario-based evaluation harness for nandi (attack detection and false positives)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+nandi-core.workspace = true
+nandi-engine.workspace = true
+nandi-policy.workspace = true
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde-saphyr.workspace = true

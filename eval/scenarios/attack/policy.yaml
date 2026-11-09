@@ -1,0 +1,80 @@
+# Zero-trust policy: argument rules, sequences, default deny, Cedar.
+- name: destructive-shell-command
+  kind: attack
+  category: policy
+  reference: Progent argument policies
+  rules: |
+    rules:
+      - id: no-rm-rf
+        match: { tool: bash, args: { command: { regex: 'rm\s+-(rf|fr)\s+/' } } }
+        action: deny
+        message: recursive delete of absolute paths is not allowed
+  steps:
+    - call: { server: local, tool: bash, args: { command: "rm -rf / --no-preserve-root" } }
+      expect: block
+      rules: [policy.no-rm-rf]
+
+- name: refund-without-verification
+  kind: attack
+  category: policy
+  reference: Agent-C temporal constraints
+  rules: |
+    sequences:
+      - id: refund-needs-verification
+        tool: refund
+        requires_prior: { tool: verify_identity, success: true, same_args: [user_id] }
+        action: deny
+  steps:
+    - call: { server: crm, tool: refund, args: { user_id: u-17, amount: 450 } }
+      expect: block
+      rules: [sequence.refund-needs-verification]
+    - call: { server: crm, tool: verify_identity, args: { user_id: u-99 } }
+    - result: { server: crm, tool: verify_identity, text: verified }
+    - call: { server: crm, tool: refund, args: { user_id: u-17, amount: 450 } }
+      expect: block
+      rules: [sequence.refund-needs-verification]
+
+- name: zero-trust-default-deny
+  kind: attack
+  category: policy
+  reference: MiniScope least privilege
+  config: { policy: { default: deny } }
+  groups: [sales]
+  rules: |
+    rules:
+      - id: sales-crm
+        match: { group: sales, tool: "crm/*" }
+        action: allow
+  steps:
+    - call: { server: hr, tool: list_salaries, args: {} }
+      expect: block
+      rules: [policy.default-deny]
+
+- name: large-payment-needs-approval
+  kind: attack
+  category: policy
+  reference: Graded enforcement (AgentSpec)
+  rules: |
+    rules:
+      - id: big-payment
+        match: { tool: "*pay*", args: { amount: { gt: 1000 } } }
+        action: ask
+        message: payments above 1000 need approval
+  steps:
+    - call: { server: bank, tool: pay_invoice, args: { invoice: INV-3, amount: 25000 } }
+      expect: block
+      rules: [policy.big-payment]
+
+- name: cedar-forbid-interns-deploy
+  kind: attack
+  category: policy
+  reference: Cedar tool authorization
+  groups: [interns]
+  cedar: |
+    @id("interns-no-deploy")
+    forbid (principal in Group::"interns", action == Action::"call_tool", resource)
+    when { resource.name like "deploy*" };
+  steps:
+    - call: { server: ci, tool: deploy_production, args: { service: api } }
+      expect: block
+      rules: [cedar.interns-no-deploy]

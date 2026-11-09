@@ -346,7 +346,20 @@ impl Engine {
 
         let scan = self.detector.scan_egress(&call.args);
         let redact = scan.verdict() == Verdict::Redact;
-        for f in scan.findings {
+        let targeted = ssrf_targets(&call.args, &scan.matches);
+        for mut f in scan.findings {
+            if f.category == Category::Ssrf {
+                // Block only when an argument *is* the network target. An
+                // address inside code, config or prose is worth an alert,
+                // not a block. The agent's own tools (shell, curl) also
+                // legitimately reach local dev servers; cloud metadata stays
+                // blocking everywhere.
+                let is_target = targeted.contains(&f.rule);
+                let local_ok = server == LOCAL_SERVER && f.rule != "ssrf.metadata";
+                if !is_target || local_ok {
+                    f.verdict = f.verdict.min(Verdict::Alert);
+                }
+            }
             d.push(f);
         }
         if redact {
@@ -457,6 +470,7 @@ impl Engine {
             if flow.is_none()
                 && !path.ends_with("#key")
                 && text.len() >= 6
+                && !on_trusted_domain(text, &cfg.trusted_domains)
                 && let Some(hit) = s.flow.find(text)
             {
                 flow = Some((path.to_string(), hit));
@@ -891,6 +905,61 @@ impl Engine {
         d.risk = risk_of(&d);
         d
     }
+}
+
+/// SSRF rules whose match covers a whole argument value (or a shell command
+/// whose network target it is), as opposed to an address mentioned inside
+/// larger text.
+fn ssrf_targets(args: &Value, matches: &[nandi_detect::Match]) -> HashSet<String> {
+    let mut strings: HashMap<String, &str> = HashMap::new();
+    walk_strings(args, &mut |path, s| {
+        strings.insert(path.to_string(), s);
+    });
+    let mut out = HashSet::new();
+    for m in matches.iter().filter(|m| m.kind == nandi_detect::MatchKind::Ssrf) {
+        let Some(s) = strings.get(&m.path) else { continue };
+        let trimmed = s.trim();
+        let lead = s.len() - s.trim_start().len();
+        let whole = m.start <= lead && m.end >= lead + trimmed.len();
+        // A single-line command such as `curl http://10.0.0.5/x` targets the
+        // address even though the match is only part of the string.
+        let command = !trimmed.contains('\n') && trimmed.len() <= 512 && trimmed.split_whitespace().count() <= 12;
+        if whole || command {
+            out.insert(m.rule.clone());
+        }
+    }
+    out
+}
+
+/// Whether `text` is an e-mail address or URL on one of `domains`.
+fn on_trusted_domain(text: &str, domains: &[String]) -> bool {
+    if domains.is_empty() {
+        return false;
+    }
+    let t = text.trim().to_ascii_lowercase();
+    let host = if let Some((_, rest)) = t.split_once("://") {
+        rest.split(['/', '?', '#'])
+            .next()
+            .unwrap_or("")
+            .rsplit('@')
+            .next()
+            .unwrap_or("")
+            .split(':')
+            .next()
+            .unwrap_or("")
+    } else if let Some((user, domain)) = t.rsplit_once('@') {
+        if user.is_empty() || user.contains(char::is_whitespace) {
+            return false;
+        }
+        domain
+    } else {
+        return false;
+    };
+    !host.is_empty()
+        && domains.iter().any(|d| {
+            let d = d.trim_start_matches("*.").to_ascii_lowercase();
+            host == d || host.ends_with(&format!(".{d}"))
+        })
 }
 
 fn risk_of(d: &Decision) -> f32 {
