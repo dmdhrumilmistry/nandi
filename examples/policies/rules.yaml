@@ -1,0 +1,57 @@
+# YAML rules: argument predicates and temporal sequences.
+#
+# Actions, least to most restrictive: allow | alert | redact | ask | deny.
+# `ask` holds the call until an operator approves it (dashboard,
+# `nandi approvals approve <id>`) or the approval times out.
+#
+# `tool` may be `tool` or `server/tool`; both parts accept `*` and `?` globs.
+# Argument matchers use dotted paths and operators such as eq, in, glob,
+# regex, prefix, contains, gt, gte, lt, lte, max_len and exists.
+
+rules:
+  - id: no-rm-rf
+    description: Recursive forced delete from a shell command
+    match:
+      tool: "*"
+      args:
+        command: { regex: "\\brm\\s+(-[a-zA-Z]*r[a-zA-Z]*f|-[a-zA-Z]*f[a-zA-Z]*r|-r\\s+-f|-f\\s+-r)\\b" }
+    action: deny
+    severity: critical
+
+  - id: no-pipe-to-shell
+    description: Downloading a script and piping it into a shell
+    match:
+      tool: "*"
+      args:
+        command: { regex: "(curl|wget)[^|]*\\|\\s*(sudo\\s+)?(ba|z)?sh\\b" }
+    action: ask
+    severity: high
+
+  - id: large-payment
+    description: Payments above 1000 need a human
+    match:
+      tool: "*pay*"
+      args:
+        amount: { gt: 1000 }
+    action: ask
+    severity: high
+
+  - id: tainted-session-sends-email
+    description: Email sent by a session that read untrusted content
+    match:
+      tool: "*send_email*"
+      session: { tainted: true }
+    action: ask
+    severity: high
+
+sequences:
+  - id: refund-needs-verification
+    description: A refund must follow a successful identity check of the same user
+    tool: "*refund*"
+    requires_prior:
+      tool: "*verify_identity*"
+      success: true
+      same_args: [user_id]
+      within_calls: 50
+    action: deny
+    severity: high

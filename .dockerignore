@@ -1,0 +1,8 @@
+target/
+.git/
+.github/
+**/nandi-data/
+*.redb
+*.key
+Dockerfile
+.dockerignore
