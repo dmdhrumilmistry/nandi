@@ -1,0 +1,426 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>nandi</title>
+<style>
+:root {
+  --bg: #f6f7f9; --panel: #ffffff; --fg: #1b1f24; --muted: #59636e; --border: #d0d7de;
+  --accent: #0b57d0; --row: #f0f2f5;
+  --allow: #1a7f37; --alert: #9a6700; --redact: #8250df; --ask: #bc4c00; --deny: #cf222e;
+  --chip-fg: #ffffff;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0d1117; --panel: #161b22; --fg: #e6edf3; --muted: #9da7b3; --border: #30363d;
+    --accent: #58a6ff; --row: #1c2129;
+    --allow: #3fb950; --alert: #d29922; --redact: #bc8cff; --ask: #f0883e; --deny: #ff7b72;
+    --chip-fg: #0d1117;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+header { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; padding: 10px 16px; border-bottom: 1px solid var(--border); background: var(--panel); }
+header h1 { font-size: 18px; margin: 0 8px 0 0; }
+.badge { padding: 2px 8px; border-radius: 10px; font-weight: 600; font-size: 12px; text-transform: uppercase; border: 1px solid var(--border); }
+.badge.monitor { color: var(--alert); border-color: var(--alert); }
+.badge.enforce { color: var(--deny); border-color: var(--deny); }
+.spacer { flex: 1; }
+form { display: flex; gap: 6px; align-items: center; margin: 0; flex-wrap: wrap; }
+label { font-size: 12px; color: var(--muted); }
+input, select, button { font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; }
+button { cursor: pointer; background: var(--panel); }
+button:hover { border-color: var(--accent); }
+button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+button.ok { color: var(--allow); border-color: var(--allow); }
+button.bad { color: var(--deny); border-color: var(--deny); }
+main { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 12px; padding: 12px 16px; }
+@media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+section { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; min-width: 0; }
+section h2 { font-size: 14px; margin: 0 0 8px; display: flex; gap: 8px; align-items: center; }
+.count { color: var(--muted); font-weight: 400; }
+.col { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th { text-align: left; color: var(--muted); font-weight: 600; border-bottom: 1px solid var(--border); padding: 4px 6px; }
+td { padding: 4px 6px; border-bottom: 1px solid var(--border); vertical-align: top; overflow-wrap: anywhere; }
+tr.ev { cursor: pointer; }
+tr.ev:hover, tr.ev:focus { background: var(--row); outline: none; }
+tr.detail td { background: var(--row); }
+pre { margin: 0; white-space: pre-wrap; font: 12px/1.35 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; max-height: 360px; overflow: auto; }
+.chip { display: inline-block; min-width: 52px; text-align: center; padding: 1px 6px; border-radius: 10px; font-size: 12px; font-weight: 600; color: var(--chip-fg); }
+.v-allow { background: var(--allow); } .v-alert { background: var(--alert); } .v-redact { background: var(--redact); }
+.v-ask { background: var(--ask); } .v-deny { background: var(--deny); }
+.muted { color: var(--muted); }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
+.feed { max-height: 70vh; overflow: auto; }
+.bar { height: 8px; background: var(--row); border-radius: 4px; overflow: hidden; min-width: 60px; border: 1px solid var(--border); }
+.bar > span { display: block; height: 100%; background: var(--allow); }
+.bar > span.mid { background: var(--alert); } .bar > span.high { background: var(--deny); }
+.item { border-bottom: 1px solid var(--border); padding: 6px 0; display: flex; gap: 8px; align-items: flex-start; justify-content: space-between; }
+.item:last-child { border-bottom: 0; }
+.actions { display: flex; gap: 6px; flex-shrink: 0; }
+.empty { color: var(--muted); font-style: italic; padding: 4px 0; }
+#conn { font-size: 12px; }
+#conn.live { color: var(--allow); } #conn.down { color: var(--deny); }
+#err { color: var(--deny); font-size: 12px; }
+.tainted { color: var(--deny); font-weight: 600; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+</style>
+</head>
+<body>
+<header>
+  <h1>nandi</h1>
+  <span id="mode" class="badge" title="Gateway mode">...</span>
+  <span id="conn" class="down" role="status" aria-live="polite">disconnected</span>
+  <span id="err" role="alert"></span>
+  <span class="spacer"></span>
+  <form id="filters">
+    <label for="f-agent">Agent</label>
+    <input id="f-agent" placeholder="all agents" size="14" autocomplete="off">
+    <label for="f-verdict">Min verdict</label>
+    <select id="f-verdict">
+      <option value="">any</option><option value="alert">alert</option><option value="redact">redact</option>
+      <option value="ask">ask</option><option value="deny">deny</option>
+    </select>
+    <button type="submit">Apply</button>
+  </form>
+  <form id="tokform">
+    <label for="token">Admin token</label>
+    <input id="token" type="password" size="14" autocomplete="off" placeholder="not set">
+    <button type="submit">Save</button>
+  </form>
+</header>
+<main>
+  <section aria-labelledby="h-feed">
+    <h2 id="h-feed">Live events <span id="feed-count" class="count"></span><span class="spacer"></span><button id="clear" type="button">Clear</button></h2>
+    <div class="feed">
+      <table>
+        <thead><tr><th scope="col">Time</th><th scope="col">Agent</th><th scope="col">Kind</th><th scope="col">Target</th><th scope="col">Verdict</th><th scope="col">Applied</th><th scope="col">Rules</th></tr></thead>
+        <tbody id="feed"></tbody>
+      </table>
+    </div>
+  </section>
+  <div class="col">
+    <section aria-labelledby="h-appr"><h2 id="h-appr">Pending approvals <span id="appr-count" class="count"></span></h2><div id="approvals"></div></section>
+    <section aria-labelledby="h-kill">
+      <h2 id="h-kill">Kill switch</h2>
+      <form id="killform"><label for="kill-agent">Agent</label><input id="kill-agent" size="16" autocomplete="off" required><button class="bad" type="submit">Kill</button></form>
+      <div id="killed"></div>
+    </section>
+    <section aria-labelledby="h-sess"><h2 id="h-sess">Sessions <span id="sess-count" class="count"></span></h2><div id="sessions"></div></section>
+    <section aria-labelledby="h-pins"><h2 id="h-pins">Tool pins <span id="pins-count" class="count"></span></h2><div id="pins"></div></section>
+    <section aria-labelledby="h-usage"><h2 id="h-usage">Usage today</h2><div id="usage"></div></section>
+  </div>
+</main>
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const MAX_ROWS = 400;
+let token = localStorage.getItem("nandi.token") || "";
+let streamAbort = null;
+let feedRows = 0;
+
+function el(tag, attrs, ...kids) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (k === "class") e.className = v;
+    else if (k.startsWith("on")) e.addEventListener(k.slice(2), v);
+    else e.setAttribute(k, v);
+  }
+  for (const k of kids) if (k !== null && k !== undefined) e.append(k instanceof Node ? k : String(k));
+  return e;
+}
+
+function headers(extra) {
+  const h = Object.assign({}, extra || {});
+  if (token) h["Authorization"] = "Bearer " + token;
+  return h;
+}
+
+function showError(msg) { $("err").textContent = msg || ""; }
+
+async function api(path, opts) {
+  opts = opts || {};
+  const init = { method: opts.method || "GET", headers: headers(opts.body ? { "Content-Type": "application/json" } : {}) };
+  if (opts.body) init.body = JSON.stringify(opts.body);
+  const r = await fetch(path, init);
+  if (r.status === 401) { showError("unauthorized: enter the admin token"); throw new Error("unauthorized"); }
+  const text = await r.text();
+  let data = null;
+  try { data = text ? JSON.parse(text) : null; } catch (_) { data = text; }
+  if (!r.ok) {
+    const msg = (data && data.error) || r.statusText;
+    if (opts.quiet404 && r.status === 404) return null;
+    showError(path + ": " + msg);
+    throw new Error(msg);
+  }
+  showError("");
+  return data;
+}
+
+function fmtTime(ms) {
+  const d = new Date(ms);
+  return d.toLocaleTimeString([], { hour12: false }) + "." + String(d.getMilliseconds()).padStart(3, "0");
+}
+function ago(ms) {
+  const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
+  if (s < 60) return s + "s ago";
+  if (s < 3600) return Math.round(s / 60) + "m ago";
+  return Math.round(s / 3600) + "h ago";
+}
+function chip(v) { return el("span", { class: "chip v-" + v }, v); }
+
+function target(ev) {
+  const k = ev.kind || {};
+  switch (k.type) {
+    case "tool_call": case "tool_result": return k.server + "/" + k.tool;
+    case "tool_list": return k.server + " (" + (k.tools || []).length + " tools)";
+    case "llm_request": case "llm_response": return k.provider + "/" + k.model;
+    case "a2a_message": return k.peer + " " + k.method;
+    case "agent_card": return k.peer;
+    case "plan_declared": return k.task || "";
+    case "process": return k.filename || k.comm;
+    case "file": return k.path || "";
+    case "network": return (k.host || k.daddr || "") + (k.dport ? ":" + k.dport : "");
+    default: return "";
+  }
+}
+
+// ----- live feed ---------------------------------------------------------------
+
+function addEvent(live, prepend) {
+  const ev = live.event, d = live.decision;
+  const rules = (d.findings || []).map((f) => f.rule).join(", ");
+  const row = el("tr", { class: "ev", tabindex: "0", "aria-expanded": "false" },
+    el("td", { class: "mono" }, fmtTime(ev.ts_ms)),
+    el("td", {}, ev.agent),
+    el("td", {}, ev.kind.type),
+    el("td", { class: "mono" }, target(ev)),
+    el("td", {}, chip(d.verdict)),
+    el("td", {}, live.applied ? chip(live.applied) : el("span", { class: "muted" }, "-")),
+    el("td", { class: "mono" }, rules));
+  const toggle = () => {
+    const next = row.nextElementSibling;
+    if (next && next.classList.contains("detail")) { next.remove(); row.setAttribute("aria-expanded", "false"); return; }
+    const detail = el("tr", { class: "detail" }, el("td", { colspan: "7" }, el("pre", {}, JSON.stringify(live, null, 2))));
+    row.after(detail);
+    row.setAttribute("aria-expanded", "true");
+  };
+  row.addEventListener("click", toggle);
+  row.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); } });
+  const body = $("feed");
+  if (prepend) body.prepend(row); else body.append(row);
+  feedRows++;
+  while (feedRows > MAX_ROWS) {
+    let last = body.lastElementChild;
+    if (last && last.classList.contains("detail")) { last.remove(); last = body.lastElementChild; }
+    if (last) last.remove();
+    feedRows--;
+  }
+  $("feed-count").textContent = "(" + feedRows + ")";
+}
+
+function filterQuery() {
+  const p = new URLSearchParams();
+  const agent = $("f-agent").value.trim();
+  const v = $("f-verdict").value;
+  if (agent) p.set("agent", agent);
+  if (v) p.set("min_verdict", v);
+  return p;
+}
+
+async function loadRecent() {
+  const p = filterQuery();
+  p.set("limit", "100");
+  try {
+    const recs = await api("/v1/events?" + p.toString(), { quiet404: true });
+    if (!recs) return;
+    // Newest first from the API; append in that order.
+    for (const r of recs) addEvent({ seq: r.seq, event: r.event, decision: r.decision, applied: null }, false);
+  } catch (_) { /* shown in header */ }
+}
+
+async function stream() {
+  if (streamAbort) streamAbort.abort();
+  const ctl = new AbortController();
+  streamAbort = ctl;
+  let delay = 1000;
+  while (!ctl.signal.aborted) {
+    try {
+      const r = await fetch("/v1/events/stream?" + filterQuery().toString(), { headers: headers(), signal: ctl.signal });
+      if (r.status === 401) { showError("unauthorized: enter the admin token"); throw new Error("unauthorized"); }
+      if (!r.ok || !r.body) throw new Error("stream " + r.status);
+      setConn(true);
+      delay = 1000;
+      const reader = r.body.getReader();
+      const dec = new TextDecoder();
+      let buf = "";
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        let i;
+        while ((i = buf.indexOf("\n\n")) >= 0) {
+          handleSse(buf.slice(0, i));
+          buf = buf.slice(i + 2);
+        }
+      }
+    } catch (e) {
+      if (ctl.signal.aborted) return;
+    }
+    setConn(false);
+    await new Promise((res) => setTimeout(res, delay));
+    delay = Math.min(delay * 2, 15000);
+  }
+}
+
+function handleSse(block) {
+  let type = "message", data = "";
+  for (const line of block.split("\n")) {
+    if (line.startsWith("event:")) type = line.slice(6).trim();
+    else if (line.startsWith("data:")) data += line.slice(5).replace(/^ /, "");
+  }
+  if (type === "event" && data) {
+    try { addEvent(JSON.parse(data), true); } catch (_) { /* ignore malformed */ }
+  } else if (type === "lagged") {
+    showError("live feed skipped " + data + " events (slow client)");
+  }
+}
+
+function setConn(up) {
+  const c = $("conn");
+  c.textContent = up ? "live" : "disconnected";
+  c.className = up ? "live" : "down";
+}
+
+// ----- side panels -------------------------------------------------------------
+
+function fill(id, nodes, emptyText) {
+  const box = $(id);
+  box.replaceChildren(...(nodes.length ? nodes : [el("div", { class: "empty" }, emptyText)]));
+}
+
+async function act(path, body) {
+  try { await api(path, { method: "POST", body: body }); } catch (_) { /* shown */ }
+  refreshFast(); refreshSlow();
+}
+
+async function refreshApprovals() {
+  const list = await api("/v1/approvals");
+  $("appr-count").textContent = "(" + list.length + ")";
+  fill("approvals", list.map((p) => el("div", { class: "item" },
+    el("div", {},
+      el("div", {}, p.summary),
+      el("div", { class: "muted" }, p.agent + " / " + p.session + ", expires " + new Date(p.expires_ms).toLocaleTimeString([], { hour12: false }))),
+    el("div", { class: "actions" },
+      el("button", { class: "ok", type: "button", "aria-label": "Approve " + p.summary, onclick: () => act("/v1/approvals/" + encodeURIComponent(p.id) + "/approve", { by: "dashboard" }) }, "Approve"),
+      el("button", { class: "bad", type: "button", "aria-label": "Deny " + p.summary, onclick: () => act("/v1/approvals/" + encodeURIComponent(p.id) + "/deny", { by: "dashboard" }) }, "Deny")))),
+    "nothing waiting");
+}
+
+async function refreshKilled() {
+  const list = await api("/v1/agents/killed");
+  fill("killed", list.map((a) => el("div", { class: "item" },
+    el("span", { class: "tainted" }, a),
+    el("div", { class: "actions" },
+      el("button", { class: "ok", type: "button", "aria-label": "Revive " + a, onclick: () => act("/v1/agents/" + encodeURIComponent(a) + "/revive") }, "Revive")))),
+    "no agents killed");
+}
+
+function riskBar(risk) {
+  const pct = Math.round(Math.max(0, Math.min(1, risk || 0)) * 100);
+  const inner = el("span", { class: pct >= 70 ? "high" : pct >= 30 ? "mid" : "" });
+  inner.style.width = pct + "%";
+  return el("div", { class: "bar", role: "meter", "aria-valuemin": "0", "aria-valuemax": "100", "aria-valuenow": String(pct), "aria-label": "risk " + pct + "%", title: "risk " + pct + "%" }, inner);
+}
+
+async function refreshSessions() {
+  const list = await api("/v1/sessions");
+  list.sort((a, b) => b.last_seen_ms - a.last_seen_ms);
+  $("sess-count").textContent = "(" + list.length + ")";
+  if (!list.length) { fill("sessions", [], "no active sessions"); return; }
+  const rows = list.slice(0, 50).map((s) => el("tr", {},
+    el("td", {}, s.agent, el("div", { class: "muted mono" }, s.session)),
+    el("td", {}, s.tainted ? el("span", { class: "tainted", title: (s.taint_sources || []).join(", ") }, "tainted") : el("span", { class: "muted" }, "clean")),
+    el("td", {}, riskBar(s.risk)),
+    el("td", {}, String(s.calls)),
+    el("td", { class: "muted" }, ago(s.last_seen_ms))));
+  fill("sessions", [el("table", {},
+    el("thead", {}, el("tr", {}, el("th", { scope: "col" }, "Agent / session"), el("th", { scope: "col" }, "Taint"), el("th", { scope: "col" }, "Risk"), el("th", { scope: "col" }, "Calls"), el("th", { scope: "col" }, "Seen"))),
+    el("tbody", {}, ...rows))], "");
+}
+
+async function refreshPins() {
+  const list = await api("/v1/pins/tools");
+  list.sort((a, b) => (b.pending ? 1 : 0) - (a.pending ? 1 : 0) || a.id.localeCompare(b.id));
+  const drift = list.filter((p) => p.pending).length;
+  $("pins-count").textContent = "(" + list.length + (drift ? ", " + drift + " drifted" : "") + ")";
+  fill("pins", list.slice(0, 100).map((p) => el("div", { class: "item" },
+    el("div", {},
+      el("div", { class: "mono" }, p.id),
+      p.pending
+        ? el("div", { class: "tainted" }, "definition changed " + ago(p.pending_since_ms || Date.now()))
+        : el("div", { class: "muted mono" }, p.hash.slice(0, 16))),
+    el("div", { class: "actions" },
+      p.pending ? el("button", { class: "ok", type: "button", "aria-label": "Approve new definition of " + p.id, onclick: () => act("/v1/pins/tools/approve", { id: p.id }) }, "Approve") : null,
+      el("button", { type: "button", "aria-label": "Forget pin " + p.id, onclick: () => act("/v1/pins/tools/forget", { id: p.id }) }, "Forget")))),
+    "no tools pinned yet");
+}
+
+async function refreshUsage() {
+  const list = await api("/v1/usage");
+  if (!list.length) { fill("usage", [], "no usage recorded"); return; }
+  fill("usage", [el("table", {},
+    el("thead", {}, el("tr", {}, el("th", { scope: "col" }, "Agent"), el("th", { scope: "col" }, "Tokens"), el("th", { scope: "col" }, "Tool calls"))),
+    el("tbody", {}, ...list.map((u) => el("tr", {}, el("td", {}, u.agent), el("td", {}, u.tokens.toLocaleString()), el("td", {}, u.tool_calls.toLocaleString())))))], "");
+}
+
+async function refreshStatus() {
+  const s = await api("/v1/status");
+  const m = $("mode");
+  m.textContent = s.mode;
+  m.className = "badge " + s.mode;
+  m.title = "mode " + s.mode + ", fail " + s.fail_mode + ", version " + s.version;
+}
+
+function settle(p) { return p.catch(() => {}); }
+function refreshFast() { return settle(refreshApprovals()); }
+function refreshSlow() {
+  return Promise.all([refreshKilled(), refreshSessions(), refreshPins(), refreshUsage(), refreshStatus()].map(settle));
+}
+
+// ----- wiring ------------------------------------------------------------------
+
+function restart() {
+  $("feed").replaceChildren();
+  feedRows = 0;
+  $("feed-count").textContent = "";
+  loadRecent().then(() => { stream(); });
+  refreshFast(); refreshSlow();
+}
+
+$("token").value = token;
+$("tokform").addEventListener("submit", (e) => {
+  e.preventDefault();
+  token = $("token").value.trim();
+  if (token) localStorage.setItem("nandi.token", token); else localStorage.removeItem("nandi.token");
+  restart();
+});
+$("filters").addEventListener("submit", (e) => { e.preventDefault(); restart(); });
+$("clear").addEventListener("click", () => { $("feed").replaceChildren(); feedRows = 0; $("feed-count").textContent = ""; });
+$("killform").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const a = $("kill-agent").value.trim();
+  if (!a) return;
+  if (!confirm("Kill agent " + a + "? All of its actions will be denied until revived.")) return;
+  $("kill-agent").value = "";
+  act("/v1/agents/" + encodeURIComponent(a) + "/kill");
+});
+
+setInterval(refreshFast, 2000);
+setInterval(refreshSlow, 5000);
+restart();
+</script>
+</body>
+</html>

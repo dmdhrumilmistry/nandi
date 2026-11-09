@@ -48,6 +48,11 @@ Under active development. Milestones:
 - [ ] M11 Optional ONNX injection classifier
 - [ ] M12 Evaluation harness
 
+## Usage
+
+See [docs/usage.md](docs/usage.md) for the quick start, SDK, MCP and
+coding-agent setup, and the operator workflow.
+
 ## Design
 
 See [docs/architecture.md](docs/architecture.md) for how the pieces fit and

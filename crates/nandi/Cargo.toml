@@ -1,0 +1,34 @@
+[package]
+name = "nandi"
+description = "Zero-trust gateway and runtime monitor for AI agents"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "nandi"
+path = "src/main.rs"
+
+[dependencies]
+nandi-core.workspace = true
+nandi-engine.workspace = true
+nandi-policy.workspace = true
+nandi-audit.workspace = true
+nandi-identity.workspace = true
+nandi-gateway.workspace = true
+anyhow.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+clap.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal", "io-std", "io-util"] }
+http = "1"
+http-body-util = "0.1"
+bytes = "1"
+mimalloc = { version = "0.1", default-features = false }
+
+[dev-dependencies]
+tempfile = "3"
