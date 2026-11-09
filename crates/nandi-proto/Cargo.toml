@@ -1,0 +1,16 @@
+[package]
+name = "nandi-proto"
+description = "Protocol parsing and rewriting for nandi: SSE, LLM provider APIs, MCP and A2A"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+nandi-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+base64.workspace = true
+memchr = "2.8"
