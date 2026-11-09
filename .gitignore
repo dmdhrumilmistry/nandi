@@ -5,3 +5,4 @@
 .env
 *.key
 !examples/**/*.key.example
+.claude/
