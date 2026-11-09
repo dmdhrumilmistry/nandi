@@ -9,6 +9,9 @@ ignore = [
   # private-key decryption and signing. nandi only verifies RSA signatures with
   # public keys, which the advisory does not affect. No fixed release exists.
   { id = "RUSTSEC-2023-0071", reason = "only RSA public-key verification is used" },
+  # proc-macro-error2 (via biscuit-auth's datalog macros) is a compile-time
+  # proc-macro helper with no runtime code in the binary.
+  { id = "RUSTSEC-2026-0173", reason = "build-time proc-macro dependency of biscuit-auth" },
 ]
 
 [licenses]
