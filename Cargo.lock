@@ -958,6 +958,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "nandi-detect"
+version = "0.1.0"
+dependencies = [
+ "aho-corasick",
+ "base64",
+ "nandi-core",
+ "regex",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "nandi-policy"
 version = "0.1.0"
 dependencies = [
