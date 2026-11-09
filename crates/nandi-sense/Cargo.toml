@@ -1,0 +1,19 @@
+[package]
+name = "nandi-sense"
+description = "Host sensor for nandi: process, file and network effects of agent processes"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[features]
+default = []
+# Kernel tracepoints through eBPF (Linux, needs clang at build time and root at runtime).
+ebpf = []
+
+[dependencies]
+nandi-core.workspace = true
+anyhow.workspace = true
+tokio = { workspace = true, features = ["rt", "time", "sync", "net", "macros"] }
