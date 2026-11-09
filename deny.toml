@@ -4,6 +4,12 @@ all-features = false
 [advisories]
 version = 2
 yanked = "deny"
+ignore = [
+  # rsa (via jsonwebtoken's rust_crypto backend): Marvin timing side channel on
+  # private-key decryption and signing. nandi only verifies RSA signatures with
+  # public keys, which the advisory does not affect. No fixed release exists.
+  { id = "RUSTSEC-2023-0071", reason = "only RSA public-key verification is used" },
+]
 
 [licenses]
 version = 2

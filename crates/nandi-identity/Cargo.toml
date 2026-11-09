@@ -1,0 +1,23 @@
+[package]
+name = "nandi-identity"
+description = "Agent authentication, Biscuit delegation and Agent Card verification for nandi"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+nandi-core.workspace = true
+nandi-proto.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+sha2.workspace = true
+hex.workspace = true
+base64.workspace = true
+http = "1"
+jsonwebtoken = { version = "11.1.0", default-features = false, features = ["rust_crypto", "use_pem"] }
+biscuit-auth = { version = "6.0.0", default-features = false, features = ["regex-full", "datalog-macro"] }
+getrandom = { version = "0.4", default-features = false, features = ["std"] }
