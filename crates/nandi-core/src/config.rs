@@ -67,7 +67,7 @@ impl Config {
         if text.trim().is_empty() {
             return Ok(Self::default());
         }
-        serde_yaml_ng::from_str(text).map_err(|e| Error::Config(e.to_string()))
+        serde_saphyr::from_str(text).map_err(|e| Error::Config(e.to_string()))
     }
 
     /// Load and parse a YAML file. Relative paths inside the config are
