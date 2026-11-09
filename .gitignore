@@ -1,0 +1,7 @@
+/target
+*.db
+*.redb
+/nandi-data
+.env
+*.key
+!examples/**/*.key.example
