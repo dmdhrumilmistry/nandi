@@ -4,6 +4,20 @@ all-features = false
 [advisories]
 version = 2
 yanked = "deny"
+ignore = [
+  # rsa (via jsonwebtoken's rust_crypto backend): Marvin timing side channel on
+  # private-key decryption and signing. nandi only verifies RSA signatures with
+  # public keys, which the advisory does not affect. No fixed release exists.
+  { id = "RUSTSEC-2023-0071", reason = "only RSA public-key verification is used" },
+  # crypto-bigint 0.5 (via jsonwebtoken's p256/p384 verification): timing
+  # variability on secret integers. nandi only verifies ECDSA signatures with
+  # public keys; no secret scalars pass through crypto-bigint. Revisit when
+  # jsonwebtoken moves to elliptic-curve releases on crypto-bigint >= 0.7.6.
+  { id = "RUSTSEC-2026-0387", reason = "public-key ECDSA verification only" },
+  # proc-macro-error2 (via biscuit-auth's datalog macros) is a compile-time
+  # proc-macro helper with no runtime code in the binary.
+  { id = "RUSTSEC-2026-0173", reason = "build-time proc-macro dependency of biscuit-auth" },
+]
 
 [licenses]
 version = 2
