@@ -32,21 +32,31 @@ in-path checks are deterministic; nothing calls an LLM to make a decision.
 
 ## Status
 
-Under active development. Milestones:
+Pre-release, under active development.
 
-- [x] M0 Scaffold, core event model, configuration, CI
-- [ ] M1 Signed audit store
-- [ ] M2 Stdio MCP wrapper, tool pinning, Cedar and YAML policy
-- [ ] M3 HTTP gateway for LLM APIs and MCP, budgets
-- [ ] M4 Detectors and redaction
-- [ ] M5 Taint, value flow, temporal rules, plan-locked mode
-- [ ] M6 Behaviour models
-- [ ] M7 Approvals, kill switch, dashboard, OTLP, metrics
-- [ ] M8 A2A security and Biscuit delegation
-- [ ] M9 Coding-agent hooks
-- [ ] M10 eBPF sensor
-- [ ] M11 Optional ONNX injection classifier
-- [ ] M12 Evaluation harness
+- [x] Core event model, configuration, CI
+- [x] Signed hash-chained audit log
+- [x] Policy: Cedar, YAML argument rules, sequence rules, plans, default deny
+- [x] Detectors: secrets, PII, honeytokens, injection, SSRF, tool poisoning
+- [x] Protocol parsers (OpenAI, Anthropic, Gemini, MCP 2025-06-18 to 2026-07-28, A2A 1.0) and identity (API keys, JWT, mTLS, Biscuit)
+- [x] Engine: taint and value flow, tool pinning, plans, budgets, behaviour models
+- [x] Evaluation harness (41/41 attack checks, 0 false positives on the bundled corpus)
+- [x] Host sensor (procfs backend)
+- [x] Gateway (LLM, MCP, A2A), stdio wrapper, coding-agent hooks, admin API, dashboard, CLI
+- [ ] eBPF sensor backend
+- [ ] Optional ONNX injection classifier
+
+## Quick start
+
+```sh
+nandi init                 # writes nandi.yaml and example policies
+nandi run                  # proxy on :8787, admin API and dashboard on :8788
+```
+
+Point an SDK at the proxy (`OPENAI_BASE_URL=http://127.0.0.1:8787/openai/v1`),
+wrap stdio MCP servers with `nandi wrap --server NAME -- <command>`, or add
+`nandi hook claude-code` / `nandi hook cursor` to your coding agent's hooks.
+See [docs/usage.md](docs/usage.md) for the full guide.
 
 ## Design
 

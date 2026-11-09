@@ -1,0 +1,142 @@
+# nandi configuration.
+#
+# Every setting has a safe default, so most of this file is optional. Start in
+# `monitor` mode: everything is evaluated, recorded and shown on the dashboard,
+# nothing is blocked. Once `nandi replay` shows the policy does what you want,
+# switch to `enforce`.
+#
+# Values holding credentials may be written as `env:NAME` or `file:/path`.
+# Relative paths are resolved against the directory of this file.
+
+# monitor | enforce
+mode: monitor
+
+# What happens when an internal component (approval broker, classifier) is
+# unavailable: closed (block) | open (let through).
+fail_mode: closed
+
+# State: audit log, signing key, tool pins, behaviour models.
+data_dir: nandi-data
+
+listen:
+  # Data plane. Point SDKs and MCP clients here.
+  proxy: 127.0.0.1:8787
+
+admin:
+  # Admin API, dashboard (http://127.0.0.1:8788/) and /metrics.
+  listen: 127.0.0.1:8788
+  # Without a token the admin API only answers loopback clients. Set one
+  # before binding to anything else:
+  # token: env:NANDI_ADMIN_TOKEN
+  ui: true
+
+# Path prefixes on the proxy listener mapped to upstreams. The prefix is
+# stripped before forwarding.
+routes:
+  # OPENAI_BASE_URL=http://127.0.0.1:8787/openai/v1
+  - name: openai
+    prefix: /openai
+    upstream: https://api.openai.com
+    kind: llm
+    # Keep provider keys away from agents: nandi adds them upstream.
+    # inject_headers: { authorization: "env:OPENAI_AUTH_HEADER" }
+    # strip_headers: [authorization]
+
+  # ANTHROPIC_BASE_URL=http://127.0.0.1:8787/anthropic
+  - name: anthropic
+    prefix: /anthropic
+    upstream: https://api.anthropic.com
+    kind: llm
+
+  # A remote MCP server over Streamable HTTP:
+  # - name: github
+  #   prefix: /mcp/github
+  #   upstream: https://api.githubcopilot.com/mcp
+  #   kind: mcp
+
+identity:
+  # Requests without credentials are attributed to agent `anonymous`. Set to
+  # false for zero trust once every agent has a key or token.
+  allow_anonymous: true
+  api_key_header: x-nandi-key
+  # Generate with `nandi key generate`; only the SHA-256 is stored here.
+  # api_keys:
+  #   - agent: support-bot
+  #     sha256: "<output of nandi key hash>"
+  #     groups: [support]
+  # Biscuit delegation tokens (`nandi token keygen`):
+  # biscuit:
+  #   root_public_key: "<hex public key>"
+
+policy:
+  # allow: anything no rule denies is allowed (good for monitor mode).
+  # deny: zero trust, only explicitly permitted tool calls run.
+  default: allow
+  rules: [policies/rules.yaml]
+  cedar: [policies/policy.cedar]
+
+tools:
+  # Pin tool definitions on first sight; a changed definition (rug pull) is
+  # held until approved with `nandi pins approve server/tool`.
+  pin: true
+  on_drift: deny
+  on_unlisted: alert
+  scan_descriptions: true
+  # Hide tools an agent may never call from its tools/list.
+  filter_list: true
+
+taint:
+  # A session that read untrusted content (tool output, web pages, other
+  # agents) is tainted; consequential tools are then escalated.
+  enabled: true
+  trusted_sources: []
+  on_tainted_call: alert
+  # Arguments that reuse values copied from untrusted output.
+  on_tainted_flow: ask
+
+detect:
+  secrets: true
+  pii: true
+  injection: true
+  ssrf: true
+  on_secret: redact
+  on_pii: alert
+  on_injection: alert
+  on_ssrf: deny
+  # Canary strings; any appearance in egress is treated as exfiltration.
+  honeytokens: []
+
+behavior:
+  enabled: true
+  # learn | detect | frozen
+  mode: detect
+  loop_threshold: 8
+  max_calls_per_minute: 0
+
+# Daily budgets per agent glob.
+budgets:
+  - agent: "*"
+    tokens_per_day: 2000000
+    tool_calls_per_day: 5000
+    verdict: alert
+
+approvals:
+  # How long a held call waits for an operator before `on_timeout` applies.
+  timeout_secs: 300
+  on_timeout: deny
+  # Slack-compatible webhook notified for every pending approval:
+  # webhook: env:NANDI_APPROVAL_WEBHOOK
+
+audit:
+  enabled: true
+  retention_days: 30
+  record_clean: true
+
+telemetry:
+  # text | json (logs go to stderr)
+  log_format: text
+  prometheus: true
+  service_name: nandi
+  # otlp_endpoint: http://127.0.0.1:4318
+  # webhooks: [env:NANDI_ALERT_WEBHOOK]
+  webhook_min_severity: high
