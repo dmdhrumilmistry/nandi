@@ -457,16 +457,16 @@ protectai DeBERTa-v3-base in fp32, one thread):
 | | |
 |---|---|
 | model load at startup | about 2 s |
-| short tool result (one window) | 40 to 60 ms |
-| 6 KB document (four 512-token windows) | 4 to 5 s |
-| peak RSS of the test process | about 1.6 GB |
+| short tool result (one window) | 40 to 70 ms |
+| 6 KB document (four 512-token windows) | 4 to 6 s |
+| gateway RSS, idle, model loaded | about 1.3 GB |
 
-The model file alone is 740 MB, so expect the gateway's memory to grow by
-roughly a gigabyte or more with this model, against a few tens of MB without
-it. Smaller models such as Prompt Guard 2 22M, or a lower `max_tokens`, cut
-both memory and latency. Evaluation is marked as blocking while the
-classifier runs so other connections keep being served, but the agent waiting
-on the scored content sees the full delay.
+The model file alone is 740 MB; without the classifier the gateway idles at
+a few tens of MB. A smaller model such as Prompt Guard 2 22M cuts both
+memory and latency; a lower `max_tokens` cuts latency but scores less of a
+long document. Evaluation is marked as blocking while the classifier runs, so
+other connections keep being served, but the agent waiting on the scored
+content sees the full delay.
 
 Start with `on_detect: alert`, watch the findings with
 `nandi tail --min-verdict alert`, and tighten once the false-positive rate on
