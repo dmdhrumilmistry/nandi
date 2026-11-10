@@ -16,6 +16,8 @@ use clap::{Parser, Subcommand};
 use tokio::sync::watch;
 
 use nandi_core::Config;
+use nandi_core::config::{FailMode, MlConfig};
+use nandi_engine::Classifier;
 use nandi_gateway::hook::HookFormat;
 use nandi_gateway::stdio::WrapOptions;
 use nandi_gateway::{App, admin, hook, proxy, stdio};
@@ -325,6 +327,42 @@ async fn termination() {
     }
 }
 
+/// Build the prompt-injection classifier when `ml.enabled` is set. A model
+/// that fails to load stops startup under `fail_mode: closed` and is skipped
+/// with a warning under `fail_mode: open`.
+fn ml_classifier(cfg: &Config, base: &Path) -> anyhow::Result<Option<Arc<dyn Classifier>>> {
+    if !cfg.ml.enabled {
+        return Ok(None);
+    }
+    if !nandi_ml::AVAILABLE {
+        tracing::warn!(
+            "ml.enabled is set but this nandi binary was built without the ML classifier \
+             (rebuild with `cargo build --features ml`); continuing without it"
+        );
+        return Ok(None);
+    }
+    match load_classifier(&cfg.ml, base) {
+        Ok(c) => Ok(Some(Arc::new(c))),
+        Err(e) if cfg.fail_mode == FailMode::Open => {
+            tracing::warn!(error = %format!("{e:#}"), "ML classifier unavailable; continuing without it (fail_mode: open)");
+            Ok(None)
+        }
+        Err(e) => Err(e.context("loading the ML classifier (fix ml.* or set fail_mode: open to start without it)")),
+    }
+}
+
+/// Resolve the `ml.*` paths against the config directory and load the model.
+/// The tokenizer defaults to `tokenizer.json` next to the model.
+fn load_classifier(ml: &MlConfig, base: &Path) -> anyhow::Result<nandi_ml::PromptInjectionClassifier> {
+    let model = nandi_gateway::app::resolve(base, ml.model.as_deref().context("ml.model is not set")?);
+    let tokenizer = match &ml.tokenizer {
+        Some(t) => nandi_gateway::app::resolve(base, t),
+        None => model.with_file_name("tokenizer.json"),
+    };
+    let runtime = ml.onnxruntime.as_deref().map(|p| nandi_gateway::app::resolve(base, p));
+    nandi_ml::PromptInjectionClassifier::load(&model, &tokenizer, runtime.as_deref(), ml.max_tokens)
+}
+
 async fn wait_for(mut rx: watch::Receiver<bool>) {
     let _ = rx.wait_for(|stop| *stop).await;
 }
@@ -332,7 +370,8 @@ async fn wait_for(mut rx: watch::Receiver<bool>) {
 async fn run(config: &Path, log_level: &str) -> anyhow::Result<()> {
     let (cfg, base) = load_config(config)?;
     init_logging(log_level, cfg.telemetry.log_format.eq_ignore_ascii_case("json"));
-    let app = App::build(cfg, &base, None)?;
+    let classifier = ml_classifier(&cfg, &base)?;
+    let app = App::build(cfg, &base, classifier)?;
     tracing::info!(mode = ?app.cfg.mode, proxy = %app.cfg.listen.proxy, "nandi {} starting", env!("CARGO_PKG_VERSION"));
 
     let (tx, rx) = watch::channel(false);
@@ -426,7 +465,8 @@ async fn wrap(config: &Path, opts: WrapOptions) -> anyhow::Result<i32> {
     if cfg.audit.path.is_none() {
         cfg.audit.path = Some(cfg.data_dir().join(format!("wrap-{}.redb", sanitize(&opts.server))));
     }
-    let app = App::build(cfg, &base, None)?;
+    let classifier = ml_classifier(&cfg, &base)?;
+    let app = App::build(cfg, &base, classifier)?;
     let code = stdio::run(app.clone(), opts).await;
     app.recorder.flush().await;
     app.shutdown();
@@ -645,4 +685,35 @@ fn remote_for(opts: &AdminOpts, config: &Path) -> anyhow::Result<Remote> {
         bail!("--admin must be an http:// or https:// URL");
     }
     Ok(Remote::new(url, token))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ml_cfg(fail_mode: FailMode) -> Config {
+        let mut cfg = Config { fail_mode, ..Config::default() };
+        cfg.ml.enabled = true;
+        cfg.ml.model = Some(PathBuf::from("does-not-exist/model.onnx"));
+        cfg
+    }
+
+    #[test]
+    fn ml_disabled_builds_no_classifier() {
+        assert!(ml_classifier(&Config::default(), Path::new(".")).unwrap().is_none());
+    }
+
+    #[test]
+    fn ml_load_failure_follows_fail_mode() {
+        let base = Path::new(".");
+        assert!(ml_classifier(&ml_cfg(FailMode::Open), base).unwrap().is_none());
+        let closed = ml_classifier(&ml_cfg(FailMode::Closed), base);
+        if nandi_ml::AVAILABLE {
+            let err = format!("{:#}", closed.err().expect("closed fail mode must refuse to start"));
+            assert!(err.contains("ML classifier"), "{err}");
+        } else {
+            // Without the feature the config is accepted with a warning.
+            assert!(closed.unwrap().is_none());
+        }
+    }
 }

@@ -1,0 +1,28 @@
+[package]
+name = "nandi-ml"
+description = "Optional ONNX prompt-injection classifier for nandi"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[features]
+default = []
+# The real classifier: ONNX Runtime (loaded at runtime, nothing downloaded at
+# build time) and HuggingFace tokenizers. Without it `load` returns an error.
+onnx = ["dep:ort", "dep:tokenizers", "dep:parking_lot"]
+
+[dependencies]
+nandi-engine.workspace = true
+anyhow.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+parking_lot = { workspace = true, optional = true }
+# 2.0.0-rc.14 and later need Rust 1.92; the workspace MSRV is 1.88. Without
+# an `api-*` feature ort targets the ONNX Runtime 1.17 C API, so any
+# runtime from 1.17 on can be loaded.
+ort = { version = "=2.0.0-rc.13", default-features = false, features = ["std", "load-dynamic", "tracing"], optional = true }
+# Pure Rust regex backend (no oniguruma C build) and no C++ suffix array.
+tokenizers = { version = "0.23", default-features = false, features = ["fancy-regex"], optional = true }
