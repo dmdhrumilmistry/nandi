@@ -603,10 +603,27 @@ impl Default for A2aConfig {
     }
 }
 
+/// Host sensor implementation.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SensorBackend {
+    /// eBPF when the binary was built with it and the kernel program loads
+    /// (root or CAP_BPF + CAP_PERFMON, kernel 5.8+), otherwise procfs.
+    #[default]
+    Auto,
+    /// Poll `/proc`: no privileges needed, but short-lived processes and
+    /// files opened between polls can be missed.
+    Procfs,
+    /// Kernel tracepoints through eBPF; fails to start when unavailable.
+    Ebpf,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct SensorConfig {
     pub enabled: bool,
+    /// Which sensor implementation to use (`auto`, `procfs` or `ebpf`).
+    pub backend: SensorBackend,
     /// Process names treated as agents (their process trees are watched).
     pub agent_comms: Vec<String>,
     /// Path globs whose access by an agent tree is sensitive.
@@ -625,6 +642,7 @@ impl Default for SensorConfig {
     fn default() -> Self {
         Self {
             enabled: false,
+            backend: SensorBackend::Auto,
             agent_comms: vec![
                 "claude".into(),
                 "codex".into(),
@@ -739,6 +757,15 @@ taint:
         assert_eq!(c.routes[0].timeout_secs, 300);
         assert_eq!(c.taint.on_tainted_flow, Verdict::Deny);
         assert!(Config::from_yaml("mdoe: enforce").is_err());
+    }
+
+    #[test]
+    fn parses_sensor_backend() {
+        assert_eq!(Config::from_yaml("sensor: {enabled: true}").unwrap().sensor.backend, SensorBackend::Auto);
+        let c = Config::from_yaml("sensor: {backend: ebpf}").unwrap();
+        assert_eq!(c.sensor.backend, SensorBackend::Ebpf);
+        assert_eq!(Config::from_yaml("sensor: {backend: procfs}").unwrap().sensor.backend, SensorBackend::Procfs);
+        assert!(Config::from_yaml("sensor: {backend: kprobe}").is_err());
     }
 
     #[test]

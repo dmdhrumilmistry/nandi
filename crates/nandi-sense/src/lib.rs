@@ -6,13 +6,15 @@
 //! emitted as ordinary [`nandi_core::Event`]s (`process`, `file`,
 //! `network`) and the engine correlates them with the tool calls it saw.
 //!
-//! Backends:
-//! - `procfs` (Linux, default): polls `/proc`. Needs no privileges for the
-//!   user's own processes and no kernel features, but can miss very
-//!   short-lived processes and files.
+//! Backends (chosen by `sensor.backend`, see [`run`]):
+//! - `procfs` (Linux): polls `/proc`. Needs no privileges for the user's
+//!   own processes and no kernel features, but can miss very short-lived
+//!   processes and files.
 //! - `ebpf` (Linux, cargo feature `ebpf`): kernel tracepoints for exec,
-//!   openat and connect delivered through a ring buffer. Catches everything,
-//!   needs root (or CAP_BPF + CAP_PERFMON) and kernel 5.8+.
+//!   openat and connect delivered through a ring buffer. Catches
+//!   short-lived processes, needs root (or CAP_BPF + CAP_PERFMON) and
+//!   kernel 5.8+.
+//! - `auto` (default): eBPF when built in and loadable, otherwise procfs.
 
 use std::collections::{HashMap, HashSet};
 
@@ -24,6 +26,62 @@ use nandi_core::{Event, EventKind, FileEvent, NetworkEvent, ProcessEvent, Source
 pub mod ebpf;
 #[cfg(target_os = "linux")]
 pub mod procfs;
+#[cfg(target_os = "linux")]
+pub mod records;
+
+/// Whether this build includes the eBPF backend.
+pub const EBPF_BUILT: bool = cfg!(all(target_os = "linux", feature = "ebpf"));
+
+/// Run the backend selected by `cfg.backend` until `shutdown` resolves,
+/// sending events to `tx`.
+///
+/// `auto` tries eBPF first (when built in) and falls back to procfs with an
+/// info log when the program cannot be loaded, typically for lack of
+/// privileges. An explicit `ebpf` fails instead of falling back.
+#[cfg(target_os = "linux")]
+pub async fn run(
+    cfg: SensorConfig,
+    tx: tokio::sync::mpsc::Sender<Event>,
+    shutdown: impl std::future::Future<Output = ()>,
+) -> anyhow::Result<()> {
+    use nandi_core::config::SensorBackend;
+    match cfg.backend {
+        SensorBackend::Procfs => {}
+        #[cfg(feature = "ebpf")]
+        SensorBackend::Ebpf => {
+            let sensor = ebpf::Sensor::load()?;
+            tracing::info!("host sensor started (ebpf backend)");
+            return sensor.run(cfg, tx, shutdown).await;
+        }
+        #[cfg(not(feature = "ebpf"))]
+        SensorBackend::Ebpf => {
+            anyhow::bail!("sensor.backend is `ebpf` but this build has no eBPF support (cargo feature `ebpf`)")
+        }
+        #[cfg(feature = "ebpf")]
+        SensorBackend::Auto => match ebpf::Sensor::load() {
+            Ok(sensor) => {
+                tracing::info!("host sensor started (ebpf backend)");
+                return sensor.run(cfg, tx, shutdown).await;
+            }
+            Err(e) => tracing::info!("eBPF sensor unavailable ({e:#}); using the procfs backend"),
+        },
+        #[cfg(not(feature = "ebpf"))]
+        SensorBackend::Auto => tracing::info!("built without eBPF support; using the procfs backend"),
+    }
+    tracing::info!("host sensor started (procfs backend)");
+    procfs::run(cfg, tx, shutdown).await
+}
+
+/// Resolve `hosts` and teach their addresses to `tracker`, so direct
+/// connections to LLM providers are reported by name.
+#[cfg(target_os = "linux")]
+pub(crate) async fn resolve_hosts(tracker: &mut Tracker, hosts: &[String]) {
+    for host in hosts {
+        if let Ok(addrs) = tokio::net::lookup_host((host.as_str(), 443)).await {
+            tracker.learn_host(host, addrs.map(|a| a.ip().to_string()));
+        }
+    }
+}
 
 /// One process as seen by a backend.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -213,6 +271,11 @@ impl Tracker {
 
     pub fn known_pids(&self) -> impl Iterator<Item = &u32> {
         self.procs.keys()
+    }
+
+    /// Whether `pid` is a known process.
+    pub fn knows(&self, pid: u32) -> bool {
+        self.procs.contains_key(&pid)
     }
 }
 
