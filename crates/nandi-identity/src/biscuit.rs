@@ -35,7 +35,9 @@ use std::collections::HashMap;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use biscuit_auth::builder::{Algorithm, Term};
-use biscuit_auth::{AuthorizerBuilder, Biscuit, BlockBuilder, KeyPair, PrivateKey, PublicKey, UnverifiedBiscuit};
+use biscuit_auth::{
+    AuthorizerBuilder, AuthorizerLimits, Biscuit, BlockBuilder, KeyPair, PrivateKey, PublicKey, UnverifiedBiscuit,
+};
 
 use crate::error::AuthError;
 
@@ -213,10 +215,20 @@ fn attenuate_at(
     token.append(block).map_err(err)?.to_base64().map_err(err)
 }
 
+/// Datalog limits for authorization. biscuit-auth's default time limit is
+/// 1 ms, which a loaded host can exceed for perfectly valid tokens and turn
+/// into spurious denials. The fact and iteration caps (the real guard
+/// against degenerate tokens) keep their defaults; the time cap only
+/// protects against a stalled machine.
+fn limits() -> AuthorizerLimits {
+    AuthorizerLimits { max_time: std::time::Duration::from_millis(50), ..AuthorizerLimits::default() }
+}
+
 fn run(token: &Biscuit, code: &str, params: HashMap<String, Term>, now: SystemTime) -> Result<BiscuitGrant, AuthError> {
     let mut time = HashMap::new();
     time.insert("now".to_string(), date(now));
     let mut authorizer = AuthorizerBuilder::new()
+        .set_limits(limits())
         .code_with_params("time({now});", time, HashMap::new())
         .and_then(|a| a.code_with_params(code, params, HashMap::new()))
         .and_then(|a| a.build(token))
