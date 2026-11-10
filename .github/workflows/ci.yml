@@ -181,3 +181,68 @@ jobs:
       - name: Summary
         if: always()
         run: grep -A40 '^category' eval.txt >> "$GITHUB_STEP_SUMMARY" || true
+
+  ebpf:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-latest, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ebpf-${{ matrix.runner }}
+      - run: sudo apt-get update && sudo apt-get install -y clang llvm libbpf-dev
+      - run: clang --version && uname -r
+      - name: Clippy with the eBPF backend
+        run: cargo clippy -p nandi-sense -p nandi --features nandi/ebpf --all-targets --locked -- -D warnings
+      - name: Build
+        run: cargo build -p nandi --features ebpf --locked
+      - name: BPF object
+        run: |
+          OBJ=$(find target/debug/build -name sense.bpf.o | head -1)
+          file "$OBJ"
+          llvm-objdump --section-headers "$OBJ" | grep -E 'tracepoint|maps|license'
+      - name: Privileged integration test
+        shell: bash
+        run: |
+          set -euo pipefail
+          BIN=$(cargo test -p nandi-sense --features ebpf --locked --no-run --message-format=json \
+            | jq -r 'select(.profile.test == true and .target.kind == ["lib"]) | .executable')
+          echo "test binary: $BIN"
+          # All tests, including the ignored ones that need root, then the
+          # eBPF tests a few more times to catch flakiness.
+          sudo "$BIN" --include-ignored --nocapture --test-threads 1
+          for _ in 1 2 3; do sudo "$BIN" --ignored ebpf_ --test-threads 1; done
+      - name: nandi sense with the eBPF backend (root, then capabilities)
+        shell: bash
+        run: |
+          set -euo pipefail
+          BIN=$PWD/target/debug/nandi
+          check() {
+            local label=$1; shift
+            local DIR; DIR=$(mktemp -d)
+            chmod 755 "$DIR"
+            printf 'sensor:\n  enabled: true\n  backend: ebpf\n  agent_comms: [nandi-ci-agent]\n  sensitive_paths: ["*/ci.env"]\n  llm_hosts: []\n' > "$DIR/nandi.yaml"
+            echo "X=1" > "$DIR/ci.env"
+            "$@" "$BIN" sense -c "$DIR/nandi.yaml" > "$DIR/events.jsonl" 2> "$DIR/sense.log" &
+            local pid=$!
+            for _ in $(seq 1 50); do grep -q "host sensor started" "$DIR/sense.log" 2>/dev/null && break; sleep 0.2; done
+            bash -c "exec -a nandi-ci-agent bash -c 'sleep 0.3; cat $DIR/ci.env >/dev/null; /bin/true; exit 0'"
+            sleep 2
+            sudo pkill -INT -f "$BIN sense -c $DIR" || true
+            wait "$pid" || true
+            echo "== $label: log"; cat "$DIR/sense.log"
+            echo "== $label: events"; cat "$DIR/events.jsonl"
+            grep -q 'ebpf backend' "$DIR/sense.log"
+            grep '"type":"file"' "$DIR/events.jsonl" | grep -q 'ci.env'
+            grep '"type":"process"' "$DIR/events.jsonl" | grep -q '/true'
+          }
+          check root sudo
+          sudo setcap cap_bpf,cap_perfmon,cap_dac_read_search,cap_sys_ptrace+ep "$BIN"
+          getcap "$BIN"
+          check capabilities env

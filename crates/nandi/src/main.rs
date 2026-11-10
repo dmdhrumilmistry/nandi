@@ -418,7 +418,7 @@ fn start_sensor(app: Arc<App>, shutdown: impl std::future::Future<Output = ()> +
         let (tx, mut rx) = tokio::sync::mpsc::channel(1024);
         let cfg = app.cfg.sensor.clone();
         tokio::spawn(async move {
-            if let Err(e) = nandi_sense::procfs::run(cfg, tx, shutdown).await {
+            if let Err(e) = nandi_sense::run(cfg, tx, shutdown).await {
                 tracing::error!(error = %e, "host sensor stopped");
             }
         });
@@ -427,7 +427,6 @@ fn start_sensor(app: Arc<App>, shutdown: impl std::future::Future<Output = ()> +
                 app.decide(ev, &[]).await;
             }
         });
-        tracing::info!("host sensor started (procfs backend)");
     }
     #[cfg(not(target_os = "linux"))]
     {
@@ -440,7 +439,7 @@ async fn sense_print(cfg: nandi_core::config::SensorConfig) -> anyhow::Result<()
     #[cfg(target_os = "linux")]
     {
         let (tx, mut rx) = tokio::sync::mpsc::channel(1024);
-        let task = tokio::spawn(nandi_sense::procfs::run(cfg, tx, termination()));
+        let task = tokio::spawn(nandi_sense::run(cfg, tx, termination()));
         while let Some(ev) = rx.recv().await {
             println!("{}", serde_json::to_string(&ev)?);
         }

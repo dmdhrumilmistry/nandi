@@ -47,11 +47,7 @@ pub async fn run_at(
     tokio::pin!(shutdown);
     loop {
         if tick.is_multiple_of(RESOLVE_EVERY) {
-            for host in &hosts {
-                if let Ok(addrs) = tokio::net::lookup_host((host.as_str(), 443)).await {
-                    tracker.learn_host(host, addrs.map(|a| a.ip().to_string()));
-                }
-            }
+            crate::resolve_hosts(&mut tracker, &hosts).await;
         }
         tick = tick.wrapping_add(1);
         for ev in scan(root, &mut tracker, &mut known, first) {
@@ -112,7 +108,7 @@ pub fn scan(root: &Path, tracker: &mut Tracker, known: &mut HashSet<u32>, first:
     out
 }
 
-fn list_pids(root: &Path) -> Vec<u32> {
+pub(crate) fn list_pids(root: &Path) -> Vec<u32> {
     let Ok(dir) = fs::read_dir(root) else { return Vec::new() };
     dir.filter_map(|e| e.ok()?.file_name().to_str()?.parse().ok()).collect()
 }

@@ -44,7 +44,7 @@ Pre-release, under active development.
 - [x] Evaluation harness (41/41 attack checks, 0 false positives on the bundled corpus)
 - [x] Host sensor (procfs backend)
 - [x] Gateway (LLM, MCP, A2A), stdio wrapper, coding-agent hooks, admin API, dashboard, CLI
-- [ ] eBPF sensor backend
+- [x] eBPF sensor backend
 - [x] Optional ONNX injection classifier (`--features ml`, off by default)
 
 ## Quick start

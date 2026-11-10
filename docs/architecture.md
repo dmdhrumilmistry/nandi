@@ -32,7 +32,7 @@
 | `nandi-proto` | Parsers for OpenAI / Anthropic / Gemini, MCP JSON-RPC, A2A. |
 | `nandi-engine` | Session state and the inspection pipeline that yields decisions. |
 | `nandi-gateway` | HTTP proxy, stdio wrapper, hook endpoint, admin API, dashboard, telemetry. |
-| `nandi-sense` | eBPF host sensor (Linux). |
+| `nandi-sense` | Host sensor (Linux): eBPF and procfs backends. |
 | `nandi-ml` | Optional ONNX prompt-injection classifier. |
 | `nandi` | The CLI binary. |
 

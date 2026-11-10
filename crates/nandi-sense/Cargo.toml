@@ -11,9 +11,15 @@ authors.workspace = true
 [features]
 default = []
 # Kernel tracepoints through eBPF (Linux, needs clang at build time and root at runtime).
-ebpf = []
+ebpf = ["dep:aya", "dep:libc"]
 
 [dependencies]
 nandi-core.workspace = true
 anyhow.workspace = true
 tokio = { workspace = true, features = ["rt", "time", "sync", "net", "macros"] }
+aya = { version = "0.16", optional = true }
+libc = { version = "0.2", optional = true }
+tracing.workspace = true
+
+[dev-dependencies]
+tracing-subscriber.workspace = true

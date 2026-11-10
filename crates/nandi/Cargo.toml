@@ -20,6 +20,8 @@ mimalloc = ["dep:mimalloc"]
 # ONNX prompt-injection classifier (`ml.*` in nandi.yaml). ONNX Runtime is
 # loaded at runtime from `ml.onnxruntime` or ORT_DYLIB_PATH.
 ml = ["nandi-ml/onnx"]
+# eBPF host sensor backend (Linux; needs clang and libbpf headers to build).
+ebpf = ["nandi-sense/ebpf"]
 
 [dependencies]
 nandi-core.workspace = true
