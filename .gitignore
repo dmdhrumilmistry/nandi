@@ -6,3 +6,4 @@
 *.key
 !examples/**/*.key.example
 .claude/
+_site/

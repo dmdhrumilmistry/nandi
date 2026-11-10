@@ -1,70 +1,159 @@
 # nandi
 
-> Nandi guards the gate of Kailash and decides who may enter. nandi does the
-> same for your AI agents.
+A gateway and runtime monitor for AI agents. nandi sits between your agents and
+the LLM APIs, MCP servers and other agents they talk to. It records every call,
+checks it against your policy before it runs, and holds the risky ones for a
+person to approve.
 
-nandi is a lightweight zero-trust gateway and runtime monitor for AI agents,
-written in Rust. It sits between agents and everything they talk to (LLM
-APIs, MCP servers, other agents over A2A, the host itself) and gives you:
+[![CI](https://github.com/dmdhrumilmistry/nandi/actions/workflows/ci.yml/badge.svg)](https://github.com/dmdhrumilmistry/nandi/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/license-Apache--2.0-informational)](LICENSE)
 
-- **Visibility**: every LLM request, tool list, tool call, tool result and
-  A2A message as a structured event, exported as OpenTelemetry GenAI spans
-  and Prometheus metrics, and kept in a signed, hash-chained audit log.
-- **Zero-trust policy**: agent identity (API keys, JWT/OIDC, mTLS/SPIFFE,
-  Biscuit delegation tokens), Cedar and YAML policies over tools and their
-  arguments, default-deny mode, identity-filtered tool lists.
-- **Tool integrity**: MCP tool definitions are hash-pinned; silent changes
-  (rug pulls) and poisoned descriptions are caught.
-- **Data-flow security**: sessions that read untrusted content are tainted;
-  consequential tools (send, write, exec, pay) are escalated, and calls that
-  reuse values copied from untrusted output are held for approval.
-- **Detection**: secrets, PII, prompt injection, SSRF, honeytokens, with
-  base64 / hex / URL decoding, and redaction; an optional ONNX classifier
-  scores untrusted content for injections.
-- **Behaviour analytics**: per-agent tool-sequence models, loop and rate
-  detection, temporal rules, plan-locked execution.
-- **Controls**: human approval queue, kill switch, token and call budgets.
-- **Host sensing** (Linux, eBPF): process, file and network effects of agent
-  processes, correlated with the tool calls they declared; shadow AI
-  detection.
+**[Documentation](https://dmdhrumilmistry.github.io/nandi/docs/)** ·
+[Getting started](docs/getting-started.md) ·
+[How it works](docs/how-it-works.md) ·
+[Research behind it](docs/background/research.md)
 
-It ships as a single static binary with a low memory and CPU footprint. All
-in-path checks are deterministic; nothing calls an LLM to make a decision.
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/dashboard-dark.png">
+  <img alt="The nandi dashboard: live agent activity, calls waiting for approval, a changed tool definition and a disabled agent" src="docs/assets/screenshots/dashboard-light.png">
+</picture>
 
-## Status
+<sub>The dashboard during a demo session. An agent read a poisoned invoice, so its
+email to the address in that invoice is waiting for approval, as is a 48,000
+payment. The MCP server rewrote a tool description after it was approved, and
+one agent has been disabled.</sub>
 
-Pre-release, under active development.
+## Why
 
-- [x] Core event model, configuration, CI
-- [x] Signed hash-chained audit log
-- [x] Policy: Cedar, YAML argument rules, sequence rules, plans, default deny
-- [x] Detectors: secrets, PII, honeytokens, injection, SSRF, tool poisoning
-- [x] Protocol parsers (OpenAI, Anthropic, Gemini, MCP 2025-06-18 to 2026-07-28, A2A 1.0) and identity (API keys, JWT, mTLS, Biscuit)
-- [x] Engine: taint and value flow, tool pinning, plans, budgets, behaviour models
-- [x] Evaluation harness (41/41 attack checks, 0 false positives on the bundled corpus)
-- [x] Host sensor (procfs backend)
-- [x] Gateway (LLM, MCP, A2A), stdio wrapper, coding-agent hooks, admin API, dashboard, CLI
-- [x] eBPF sensor backend
-- [x] Optional ONNX injection classifier (`--features ml`, off by default)
+Agents act on text they did not write. A web page, an email or a tool
+description can carry instructions, and the agent has real tools: it can send
+email, move money, run shell commands. Logging prompts does not tell you what
+the agent did with them, and asking a second model to judge every call is slow
+and can be fooled the same way.
+
+nandi takes a different route. Every model request, tool call, tool result and
+agent-to-agent message becomes a structured event, and every event gets a
+deterministic decision:
+
+- **Policy.** YAML rules over tools and their arguments, sequence rules ("a
+  refund must follow an identity check for the same user"), Cedar for
+  who-may-do-what, and a default-deny mode.
+- **Data flow.** Sessions that read untrusted content are tainted. A payment
+  to an IBAN that appeared only in a fetched invoice is held, whatever the
+  invoice said to get the agent there.
+- **Tool integrity.** MCP tool definitions are pinned. A server that quietly
+  rewrites a description is caught, and poisoned or shadowing descriptions are
+  flagged when they are listed.
+- **Detection.** Secrets, PII, honeytokens, prompt injection, exfiltration
+  links and SSRF targets, including through base64, hex and URL encoding.
+- **Controls.** Human approvals, a kill switch, token and call budgets,
+  behaviour baselines per agent.
+- **Evidence.** A hash-chained, Ed25519-signed audit log, OpenTelemetry spans
+  and Prometheus metrics.
+
+It runs in monitor mode first, so you can see what enforcement would do on
+real traffic before turning it on.
 
 ## Quick start
 
 ```sh
-nandi init                 # writes nandi.yaml and example policies
-nandi run                  # proxy on :8787, admin API and dashboard on :8788
+cargo install --locked --git https://github.com/dmdhrumilmistry/nandi nandi
+
+nandi init        # writes nandi.yaml and example policies
+nandi run         # proxy on 127.0.0.1:8787, dashboard on http://127.0.0.1:8788
 ```
 
-Point an SDK at the proxy (`OPENAI_BASE_URL=http://127.0.0.1:8787/openai/v1`),
-wrap stdio MCP servers with `nandi wrap --server NAME -- <command>`, or add
-`nandi hook claude-code` / `nandi hook cursor` to your coding agent's hooks.
-See [docs/usage.md](docs/usage.md) for the full guide.
+Then connect an agent in whichever way fits:
 
-## Design
+| You run | Put nandi in front with |
+|---|---|
+| Agents on the OpenAI, Anthropic or Gemini SDKs | `OPENAI_BASE_URL=http://127.0.0.1:8787/openai/v1` ([proxy guide](docs/guides/proxy.md)) |
+| MCP servers in Claude Desktop, Cursor or Claude Code | `nandi wrap --server github -- npx -y @modelcontextprotocol/server-github` ([MCP guide](docs/guides/mcp.md)) |
+| Claude Code or Cursor's built-in tools | a `nandi hook claude-code` or `nandi hook cursor` hook ([hooks guide](docs/guides/coding-agents.md)) |
+| Agents on a Linux host | `sensor.enabled: true` to watch their processes, files and connections ([host sensor](docs/guides/host-sensor.md)) |
 
-See [docs/architecture.md](docs/architecture.md) for how the pieces fit and
-[docs/research.md](docs/research.md) for the products and papers each
-feature comes from.
+## A policy, and what it does
+
+```yaml
+rules:
+  - id: large-payment
+    match:
+      tool: "*pay*"
+      args: { amount: { gt: 1000 } }
+    action: ask
+sequences:
+  - id: refund-needs-verification
+    tool: "*refund*"
+    requires_prior: { tool: "*verify_identity*", success: true, same_args: [user_id] }
+    action: deny
+```
+
+```text
+$ nandi tail
+12:50:19.103  research-agent   tool_result  web/fetch_page       alert   injection.ignore-instructions
+12:50:19.619  research-agent   tool_call    web/fetch_page       deny    ssrf.metadata
+12:50:19.685  billing-agent    tool_call    crm/issue_refund     deny    sequence.refund-needs-verification
+12:50:19.725  claude-code      tool_call    notion/create_page   redact  secret.database-url
+12:50:19.742  claude-code      tool_call    local/Bash           ask     policy.no-pipe-to-shell
+12:50:19.781  research-agent   tool_list    web                  alert   tool.drift,tool.poisoning.injection,tool.poisoning.sensitive-file
+```
+
+Test policy against recorded traffic before enforcing it with `nandi replay`,
+or against single events with `nandi policy test`. See
+[Writing rules](docs/policy/rules.md) and [Cedar policies](docs/policy/cedar.md).
+
+## Footprint
+
+Measured in CI on the static release builds:
+
+| | |
+|---|---|
+| Memory at idle | 19 MB (aarch64) to 21 MB (x86_64) |
+| Binary | 16 to 20 MB, statically linked |
+| Evaluation per event | about 25 µs median, all checks |
+| Evaluation corpus | 41 of 41 attack checks caught, 0 false positives in 36 benign checks |
+
+The corpus is 50 scenarios modelled on AgentDojo, InjecAgent, MCPTox and
+related work, plus everyday benign sessions, and it runs on every change. It is
+ours, so treat it as a regression suite rather than a benchmark; see
+[Evaluation](docs/background/evaluation.md).
+
+## Documentation
+
+- [Getting started](docs/getting-started.md) and [how it works](docs/how-it-works.md)
+- Guides: [proxy](docs/guides/proxy.md), [MCP servers](docs/guides/mcp.md),
+  [coding agents](docs/guides/coding-agents.md), [host sensor](docs/guides/host-sensor.md),
+  [ML classifier](docs/guides/ml-classifier.md)
+- Policy: [rules](docs/policy/rules.md), [Cedar](docs/policy/cedar.md),
+  [data flow](docs/policy/data-flow.md), [detection](docs/policy/detection.md),
+  [testing](docs/policy/testing.md)
+- Operations: [monitor to enforce](docs/operations/enforce.md),
+  [approvals](docs/operations/approvals.md), [identity](docs/operations/identity.md),
+  [audit](docs/operations/audit.md), [observability](docs/operations/observability.md),
+  [deployment](docs/operations/deployment.md)
+- Reference: [configuration](docs/reference/configuration.md), [CLI](docs/reference/cli.md),
+  [admin API](docs/reference/admin-api.md)
+
+The same pages are published at <https://dmdhrumilmistry.github.io/nandi/>.
+
+## Status
+
+nandi is pre-release. Everything listed above is implemented and tested in CI on
+Linux and macOS; interfaces may still change before 1.0. The eBPF sensor
+(`--features ebpf`) and the ONNX classifier (`--features ml`) are optional
+builds.
+
+## Contributing
+
+Issues and pull requests are welcome. `cargo test --workspace` runs the test
+suite and `cargo test -p nandi-eval -- --nocapture` the attack corpus. New
+attack or benign scenarios in `eval/scenarios` are especially useful.
+
+## About the name
+
+In Hindu tradition Nandi guards the gate of Kailash and decides who may enter.
 
 ## License
 
-Apache-2.0
+Apache-2.0. The eBPF program in `crates/nandi-sense/bpf` is GPL-2.0-only, as
+the kernel requires for the helpers it uses.

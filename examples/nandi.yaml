@@ -108,7 +108,7 @@ detect:
 
 # Optional ONNX prompt-injection classifier run on untrusted content (tool
 # results, inbound A2A messages). Needs a binary built with `--features ml`,
-# an ONNX Runtime library and a model; see docs/usage.md.
+# an ONNX Runtime library and a model; see docs/guides/ml-classifier.md.
 # ml:
 #   enabled: true
 #   model: models/prompt-injection/model.onnx
