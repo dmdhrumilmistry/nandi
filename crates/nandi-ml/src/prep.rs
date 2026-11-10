@@ -129,13 +129,19 @@ pub fn malicious_probability(logits: &[f32], classes: Option<&[usize]>) -> f32 {
     p.clamp(0.0, 1.0)
 }
 
-/// The highest malicious probability over the rows of a `[rows, labels]`
-/// logits tensor.
-pub fn max_malicious(logits: &[f32], labels: usize, classes: Option<&[usize]>) -> Option<f32> {
+/// Malicious probability of each row of a `[rows, labels]` logits tensor,
+/// or `None` when the shape does not fit.
+pub fn row_malicious(logits: &[f32], labels: usize, classes: Option<&[usize]>) -> Option<Vec<f32>> {
     if labels == 0 || logits.is_empty() || !logits.len().is_multiple_of(labels) {
         return None;
     }
-    logits.chunks_exact(labels).map(|row| malicious_probability(row, classes)).reduce(f32::max)
+    Some(logits.chunks_exact(labels).map(|row| malicious_probability(row, classes)).collect())
+}
+
+/// The highest malicious probability over the rows of a `[rows, labels]`
+/// logits tensor.
+pub fn max_malicious(logits: &[f32], labels: usize, classes: Option<&[usize]>) -> Option<f32> {
+    row_malicious(logits, labels, classes)?.into_iter().reduce(f32::max)
 }
 
 /// Indices of the malicious classes from a HuggingFace `config.json`
@@ -276,6 +282,9 @@ mod tests {
         assert!(p > 0.99);
         assert_eq!(max_malicious(&logits, 4, None), None);
         assert_eq!(max_malicious(&[], 2, None), None);
+        let rows = row_malicious(&logits, 2, Some(&[1])).unwrap();
+        assert_eq!(rows.len(), 3);
+        assert!(rows[0] < 0.01 && rows[1] > 0.99 && (rows[2] - 0.5).abs() < 1e-6);
     }
 
     #[test]

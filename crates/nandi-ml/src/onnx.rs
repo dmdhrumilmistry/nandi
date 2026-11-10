@@ -191,6 +191,12 @@ impl PromptInjectionClassifier {
     /// Malicious-class probability of `text`: the maximum over its token
     /// windows.
     pub fn try_score(&self, text: &str) -> anyhow::Result<f32> {
+        Ok(self.window_scores(text)?.into_iter().fold(0.0, f32::max))
+    }
+
+    /// Malicious-class probability of each scored token window of `text`,
+    /// in document order.
+    pub fn window_scores(&self, text: &str) -> anyhow::Result<Vec<f32>> {
         let text = prep::truncate(text, MAX_TEXT_BYTES);
         let enc = self.tokenizer.encode(text, false).map_err(tok_err)?;
         let ids = enc.get_ids();
@@ -217,7 +223,7 @@ impl PromptInjectionClassifier {
         let outputs = session.run(values).map_err(ort_err)?;
         let (shape, logits) = outputs[self.output.as_str()].try_extract_tensor::<f32>().map_err(ort_err)?;
         let labels = shape.last().copied().unwrap_or(0).max(0) as usize;
-        prep::max_malicious(logits, labels, self.classes.as_deref())
+        prep::row_malicious(logits, labels, self.classes.as_deref())
             .with_context(|| format!("unexpected logits shape {:?}", &**shape))
     }
 }
