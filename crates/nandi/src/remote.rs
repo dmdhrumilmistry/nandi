@@ -378,15 +378,22 @@ pub async fn tail(r: &Remote, agent: Option<&str>, min_verdict: Option<&str>, js
             "event" => {
                 let Ok(v) = serde_json::from_str::<Value>(data) else { return };
                 let (ev, d) = (&v["event"], &v["decision"]);
+                let (verdict, applied) = (s(d, "verdict"), s(&v, "applied"));
+                // Show "deny" when both agree, "deny>allow" when monitor mode
+                // or an operator changed the outcome.
+                let decision = if verdict == applied || applied.is_empty() {
+                    verdict.to_string()
+                } else {
+                    format!("{verdict}>{applied}")
+                };
                 let _ = writeln!(
                     out,
-                    "{} {:<16} {:<13} {:<36} {:<6} applied={:<6} {}",
-                    ev["ts_ms"],
+                    "{}  {:<16} {:<12} {:<34} {:<12} {}",
+                    clock(ev["ts_ms"].as_u64().unwrap_or(0)),
                     s(ev, "agent"),
                     s(&ev["kind"], "type"),
                     target(ev),
-                    s(d, "verdict"),
-                    s(&v, "applied"),
+                    decision,
                     rules_of(d)
                 );
             }
@@ -421,5 +428,20 @@ mod tests {
     fn targets() {
         let ev = json!({ "kind": { "type": "tool_call", "server": "fs", "tool": "read" } });
         assert_eq!(target(&ev), "fs/read");
+    }
+}
+
+/// `HH:MM:SS.mmm` in UTC for a Unix-millisecond timestamp.
+fn clock(ms: u64) -> String {
+    let secs = ms / 1000;
+    format!("{:02}:{:02}:{:02}.{:03}", (secs / 3600) % 24, (secs / 60) % 60, secs % 60, ms % 1000)
+}
+
+#[cfg(test)]
+mod clock_tests {
+    #[test]
+    fn formats_utc_clock() {
+        assert_eq!(super::clock(1_794_314_325_688), "12:38:45.688");
+        assert_eq!(super::clock(0), "00:00:00.000");
     }
 }

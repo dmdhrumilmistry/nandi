@@ -388,7 +388,16 @@ impl Hook<'_> {
                 let g: Vec<String> = serde_json::from_value(g.clone()).map_err(|e| format!("invalid groups: {e}"))?;
                 groups.extend(g);
             }
-            serde_json::from_value::<Event>(ev.clone()).map_err(|e| format!("invalid event: {e}"))?
+            // Only `kind` is required; fill in the envelope like `nandi policy test`.
+            let mut ev = ev.clone();
+            if let Some(obj) = ev.as_object_mut() {
+                obj.entry("id").or_insert_with(|| Value::from(nandi_core::util::new_id()));
+                obj.entry("ts_ms").or_insert_with(|| Value::from(nandi_core::util::now_ms()));
+                obj.entry("source").or_insert_with(|| Value::from("hook"));
+                obj.entry("agent").or_insert_with(|| Value::from(self.agent.as_str()));
+                obj.entry("session").or_insert_with(|| Value::from("default"));
+            }
+            serde_json::from_value::<Event>(ev).map_err(|e| format!("invalid event: {e}"))?
         } else {
             let tool = str_field(input, "tool").ok_or("expected a tool call or an event")?;
             Event::new(
@@ -912,6 +921,15 @@ mod tests {
 
         let r = handle(&app, HookFormat::Generic, json!({"tool": "search", "args": {"q": "x"}})).await;
         assert_eq!((r.exit_code, r.stdout["verdict"].as_str()), (0, Some("allow")));
+
+        // Only `kind` is required for an event; the envelope is filled in.
+        let r = handle(
+            &app,
+            HookFormat::Generic,
+            json!({"event": {"kind": {"type": "plan_declared", "task": "t", "steps": [{"tool": "mail/read_inbox"}]}}}),
+        )
+        .await;
+        assert_eq!(r.exit_code, 0, "{:?}", r.stdout);
     }
 
     #[test]

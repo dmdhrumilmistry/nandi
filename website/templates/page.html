@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{title}} · nandi</title>
+<meta name="description" content="{{description}}">
+<link rel="icon" href="{{root}}assets/mark.svg" type="image/svg+xml">
+<link rel="stylesheet" href="{{root}}assets/site.css">
+</head>
+<body class="doc">
+<a class="skip" href="#content">Skip to content</a>
+<header class="bar">
+  <a class="brand" href="{{root}}index.html" aria-label="nandi home">
+    <svg viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><rect x="1.5" y="3" width="21" height="2.2" rx="1.1"/><rect x="3.5" y="7.6" width="17" height="1.8" rx=".9"/><rect x="4.5" y="11.6" width="15" height="1.8" rx=".9"/><rect x="6" y="5" width="2.4" height="16" rx=".6"/><rect x="15.6" y="5" width="2.4" height="16" rx=".6"/></svg>
+    <span>nandi</span>
+  </a>
+  <button class="menu" type="button" aria-controls="nav" aria-expanded="false">Menu</button>
+  <div class="search" role="search">
+    <label for="q" class="sr">Search the docs</label>
+    <input id="q" type="search" placeholder="Search the docs" autocomplete="off" data-root="{{root}}">
+    <kbd>/</kbd>
+    <ol id="results" hidden></ol>
+  </div>
+  <nav class="top-links" aria-label="Site">
+    <a href="{{root}}docs/index.html">Docs</a>
+    <a href="{{root}}docs/background/research.html">Research</a>
+    <a href="https://github.com/dmdhrumilmistry/nandi">GitHub</a>
+  </nav>
+</header>
+<div class="layout">
+  <nav id="nav" class="sidebar" aria-label="Documentation">
+{{sidebar}}
+  </nav>
+  <main id="content" class="content">
+    <p class="crumb">{{section}}</p>
+    <h1>{{title}}</h1>
+{{body}}
+    <nav class="pager" aria-label="Pages">{{prev}}{{next}}</nav>
+    <footer class="page-foot">
+      <a href="{{edit}}">Edit this page on GitHub</a>
+      <span>Apache-2.0</span>
+    </footer>
+  </main>
+  <aside class="toc" aria-label="On this page">
+    <p>On this page</p>
+    <ol>
+{{toc}}
+    </ol>
+  </aside>
+</div>
+<script src="{{root}}assets/site.js" defer></script>
+</body>
+</html>

@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>nandi: a gateway and runtime monitor for AI agents</title>
+<meta name="description" content="nandi sits between AI agents and the LLM APIs, MCP servers and agents they talk to. It records every call, applies policy before anything runs and holds risky actions for a human. One static binary.">
+<link rel="icon" href="{{root}}assets/mark.svg" type="image/svg+xml">
+<link rel="stylesheet" href="{{root}}assets/site.css">
+</head>
+<body class="home">
+<a class="skip" href="#main">Skip to content</a>
+<header class="bar">
+  <a class="brand" href="{{root}}index.html" aria-label="nandi home"><svg viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><rect x="1.5" y="3" width="21" height="2.2" rx="1.1"/><rect x="3.5" y="7.6" width="17" height="1.8" rx=".9"/><rect x="4.5" y="11.6" width="15" height="1.8" rx=".9"/><rect x="6" y="5" width="2.4" height="16" rx=".6"/><rect x="15.6" y="5" width="2.4" height="16" rx=".6"/></svg><span>nandi</span></a>
+  <nav class="top-links" aria-label="Site">
+    <a href="{{root}}docs/getting-started.html">Get started</a>
+    <a href="{{root}}docs/index.html">Docs</a>
+    <a href="{{root}}docs/background/research.html">Research</a>
+    <a href="https://github.com/dmdhrumilmistry/nandi">GitHub</a>
+  </nav>
+</header>
+
+<main id="main">
+<div class="wrap">
+  <section class="hero">
+    <p class="eyebrow">Open source, Apache-2.0. Written in Rust.</p>
+    <h1>Know what your agents do.<br>Decide what they may do.</h1>
+    <p class="lead">nandi sits between AI agents and the LLM APIs, MCP servers and other agents
+    they talk to. It records every call, checks it against your policy before it runs, and holds
+    the risky ones for a person to approve. One static binary, about 20&nbsp;MB of memory.</p>
+    <div class="cta">
+      <a class="button solid" href="{{root}}docs/getting-started.html">Get started</a>
+      <a class="button" href="{{root}}docs/how-it-works.html">How it works</a>
+      <div class="install"><span>cargo install --locked --git https://github.com/dmdhrumilmistry/nandi nandi</span><button class="copy" type="button" data-copy="cargo install --locked --git https://github.com/dmdhrumilmistry/nandi nandi">Copy</button></div>
+    </div>
+    <figure class="shot">
+      <picture>
+        <source srcset="{{root}}docs/assets/screenshots/dashboard-dark.png" media="(prefers-color-scheme: dark)">
+        <img src="{{root}}docs/assets/screenshots/dashboard-light.png" width="2880" height="1800" alt="The nandi dashboard with live agent activity, two calls waiting for approval and a changed tool definition">
+      </picture>
+      <figcaption>The dashboard during a demo session: a poisoned page was read, a payment and an email are waiting for approval, and an MCP server changed a tool after it was approved.</figcaption>
+    </figure>
+  </section>
+
+  <section class="section" aria-labelledby="catch">
+    <header>
+      <h2 id="catch">What it catches</h2>
+      <p>Each of these is a scenario in the evaluation corpus that runs in CI on every change,
+      modelled on published attacks against agents.</p>
+    </header>
+    <div class="catches">
+      <div class="catch"><h3>Injected instructions that move money or data</h3>
+        <p>An invoice tells the agent to pay a new IBAN. The IBAN appeared only in the invoice, never in what the user asked, so the payment is held for approval.</p>
+        <span class="rule">taint.flow</span></div>
+      <div class="catch"><h3>Tools that change after you trusted them</h3>
+        <p>Tool definitions are pinned the first time a server lists them. A description rewritten later is flagged and the tool is blocked until someone reviews it.</p>
+        <span class="rule">tool.drift</span></div>
+      <div class="catch"><h3>Poisoned and shadowing tool descriptions</h3>
+        <p>Hidden instructions, requests to read ~/.ssh, smuggling parameters, and descriptions that try to change how another server's tools behave.</p>
+        <span class="rule">tool.poisoning.*, tool.shadowing</span></div>
+      <div class="catch"><h3>Secrets and canaries on their way out</h3>
+        <p>47 credential formats, PII with checksum validation and your own honeytokens, including when wrapped in base64, hex or URL encoding.</p>
+        <span class="rule">secret.*, honeytoken</span></div>
+      <div class="catch"><h3>Requests for cloud credentials</h3>
+        <p>Metadata endpoints, private ranges and encoded loopback addresses in tool arguments, without blocking a coding agent's own localhost dev server.</p>
+        <span class="rule">ssrf.metadata</span></div>
+      <div class="catch"><h3>Effects nobody declared</h3>
+        <p>On Linux the host sensor watches the agent's process tree. A curl or a credential read with no matching tool call stands out.</p>
+        <span class="rule">sensor.undeclared-exec</span></div>
+    </div>
+  </section>
+
+  <section class="section" aria-labelledby="where">
+    <header>
+      <h2 id="where">Where it sits</h2>
+      <p>A proxy for SDKs, a wrapper for stdio MCP servers and hooks for coding agents. They share
+      sessions, so what one sees informs what the others allow.</p>
+    </header>
+    <div class="flow">
+      <div class="col">
+        <div class="node">Claude Code, Cursor<small>hooks</small></div>
+        <div class="node">Your agents<small>OpenAI, Anthropic, Gemini SDKs</small></div>
+        <div class="node">MCP clients<small>Claude Desktop, IDEs</small></div>
+      </div>
+      <div class="arrow" aria-hidden="true">&rarr;</div>
+      <div class="core">
+        <strong><svg viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><rect x="1.5" y="3" width="21" height="2.2" rx="1.1"/><rect x="3.5" y="7.6" width="17" height="1.8" rx=".9"/><rect x="4.5" y="11.6" width="15" height="1.8" rx=".9"/><rect x="6" y="5" width="2.4" height="16" rx=".6"/><rect x="15.6" y="5" width="2.4" height="16" rx=".6"/></svg> nandi</strong>
+        <ul>
+          <li>identity</li><li>policy</li><li>tool pinning</li><li>taint and flow</li>
+          <li>detection</li><li>approvals</li><li>budgets</li><li>signed audit</li>
+        </ul>
+      </div>
+      <div class="arrow" aria-hidden="true">&rarr;</div>
+      <div class="col">
+        <div class="node">LLM APIs<small>chat, responses, streaming</small></div>
+        <div class="node">MCP servers<small>stdio and Streamable HTTP</small></div>
+        <div class="node">Other agents<small>A2A</small></div>
+      </div>
+    </div>
+    <p class="flow-note">Every decision is written to a hash-chained, signed log and exported as OpenTelemetry spans and Prometheus metrics.</p>
+  </section>
+
+  <section class="section" aria-labelledby="policy">
+    <header>
+      <h2 id="policy">Policy you can read</h2>
+      <p>Argument rules and sequences in YAML, who-may-do-what in Cedar. Start in monitor mode,
+      replay recorded traffic against a new policy, then enforce.</p>
+    </header>
+    <div class="policy-pair">
+      <div>
+        <p class="label">policies/rules.yaml</p>
+        <div class="hl"><pre><span class="nt">rules</span><span class="p">:</span>
+  <span class="p">-</span> <span class="nt">id</span><span class="p">:</span> <span class="l">large-payment</span>
+    <span class="nt">match</span><span class="p">:</span>
+      <span class="nt">tool</span><span class="p">:</span> <span class="s">"*pay*"</span>
+      <span class="nt">args</span><span class="p">:</span> <span class="p">{</span> <span class="nt">amount</span><span class="p">:</span> <span class="p">{</span> <span class="nt">gt</span><span class="p">:</span> <span class="mi">1000</span> <span class="p">}</span> <span class="p">}</span>
+    <span class="nt">action</span><span class="p">:</span> <span class="l">ask</span>
+<span class="nt">sequences</span><span class="p">:</span>
+  <span class="p">-</span> <span class="nt">id</span><span class="p">:</span> <span class="l">refund-needs-verification</span>
+    <span class="nt">tool</span><span class="p">:</span> <span class="s">"*refund*"</span>
+    <span class="nt">requires_prior</span><span class="p">:</span>
+      <span class="nt">tool</span><span class="p">:</span> <span class="s">"*verify_identity*"</span>
+      <span class="nt">same_args</span><span class="p">:</span> <span class="p">[</span><span class="l">user_id</span><span class="p">]</span>
+    <span class="nt">action</span><span class="p">:</span> <span class="l">deny</span></pre></div>
+      </div>
+      <div>
+        <p class="label">policies/policy.cedar</p>
+        <div class="hl"><pre><span class="nd">@id</span><span class="p">(</span><span class="s">"interns-no-repo-delete"</span><span class="p">)</span>
+<span class="k">forbid</span> <span class="p">(</span>
+  <span class="k">principal in</span> <span class="nc">Group</span><span class="p">::</span><span class="s">"interns"</span><span class="p">,</span>
+  <span class="k">action</span> <span class="o">==</span> <span class="nc">Action</span><span class="p">::</span><span class="s">"call_tool"</span><span class="p">,</span>
+  <span class="k">resource</span> <span class="o">==</span> <span class="nc">Tool</span><span class="p">::</span><span class="s">"github/delete_repository"</span>
+<span class="p">);</span>
+
+<span class="nd">@id</span><span class="p">(</span><span class="s">"merge-needs-approval"</span><span class="p">)</span>
+<span class="nd">@action</span><span class="p">(</span><span class="s">"ask"</span><span class="p">)</span>
+<span class="k">forbid</span> <span class="p">(</span><span class="k">principal</span><span class="p">,</span> <span class="k">action</span><span class="p">,</span>
+  <span class="k">resource</span> <span class="o">==</span> <span class="nc">Tool</span><span class="p">::</span><span class="s">"github/merge_pull_request"</span><span class="p">);</span></pre></div>
+      </div>
+    </div>
+    <div class="term" aria-label="nandi tail output">
+<pre><span class="dim">$ nandi tail</span>
+<span class="dim">12:50:19.103</span>  research-agent   tool_result  web/fetch_page                     <span class="hold">alert</span>        injection.ignore-instructions
+<span class="dim">12:50:19.619</span>  research-agent   tool_call    web/fetch_page                     <span class="no">deny</span>         ssrf.metadata
+<span class="dim">12:50:19.685</span>  billing-agent    tool_call    crm/issue_refund                   <span class="no">deny</span>         sequence.refund-needs-verification
+<span class="dim">12:50:19.715</span>  claude-code      tool_call    local/Bash                         <span class="no">deny</span>         policy.no-rm-rf
+<span class="dim">12:50:19.725</span>  claude-code      tool_call    notion/create_page                 <span class="hold">redact</span>       secret.database-url
+<span class="dim">12:50:19.742</span>  claude-code      tool_call    local/Bash                         <span class="hold">ask</span>          policy.no-pipe-to-shell
+<span class="dim">12:50:19.763</span>  support-bot      tool_call    crm/export_customers               <span class="no">deny</span>         killswitch
+<span class="dim">12:50:19.781</span>  research-agent   tool_list    web                                <span class="hold">alert</span>        tool.drift,tool.poisoning.injection,tool.poisoning.sensitive-file</pre>
+    </div>
+  </section>
+
+  <section class="section" aria-labelledby="small">
+    <header>
+      <h2 id="small">Small enough to run everywhere</h2>
+      <p>One process per laptop, per pod or in front of a fleet. Nothing in the request path calls a model.</p>
+    </header>
+    <table class="numbers">
+      <tr><td>Memory at idle</td><td class="v">19 to 21 MB</td><td class="n">static release build, x86_64 and aarch64</td></tr>
+      <tr><td>Binary</td><td class="v">16 to 20 MB</td><td class="n">statically linked, no runtime dependencies</td></tr>
+      <tr><td>Evaluation per event</td><td class="v">about 25 &micro;s</td><td class="n">median, all checks, release build</td></tr>
+      <tr><td>Evaluation corpus</td><td class="v">41 / 41</td><td class="n">attack checks caught, 0 false positives in 36 benign checks. The corpus is ours; treat it as a regression suite, not a benchmark.</td></tr>
+    </table>
+  </section>
+
+  <section class="section" aria-labelledby="research">
+    <header>
+      <h2 id="research">Built on published research</h2>
+      <p>Most features come from a paper or an existing product. The <a href="{{root}}docs/background/research.html">research page</a> maps each one.</p>
+    </header>
+    <ul class="papers">
+      <li><a href="https://arxiv.org/abs/2503.18813">CaMeL: Defeating Prompt Injections by Design</a><span>Untrusted data must not drive consequential actions. Became taint tracking.</span></li>
+      <li><a href="https://arxiv.org/abs/2505.23643">FIDES: Securing AI Agents with Information-Flow Control</a><span>Integrity labels on tool output. Became the session taint label.</span></li>
+      <li><a href="https://arxiv.org/abs/2504.11703">Progent: Programmable Privilege Control</a><span>Argument-level tool policies. Became the YAML rule language.</span></li>
+      <li><a href="https://arxiv.org/abs/2506.01333">ETDI: Enhanced Tool Definition Interface</a><span>Immutable, verifiable tool definitions. Became tool pinning.</span></li>
+      <li><a href="https://arxiv.org/abs/2508.00500">Pro2Guard</a><span>Probability of reaching an unsafe state. Became the behaviour lookahead.</span></li>
+      <li><a href="https://arxiv.org/abs/2508.02736">AgentSight</a><span>eBPF boundary tracing for agents. Became the host sensor.</span></li>
+    </ul>
+  </section>
+</div>
+</main>
+
+<footer class="foot">
+  <div class="wrap">
+    <span>nandi is released under the Apache-2.0 license.</span>
+    <span><a href="https://github.com/dmdhrumilmistry/nandi">Source</a> &middot; <a href="{{root}}docs/index.html">Documentation</a> &middot; <a href="https://github.com/dmdhrumilmistry/nandi/issues">Issues</a></span>
+  </div>
+</footer>
+<script src="{{root}}assets/site.js" defer></script>
+</body>
+</html>
