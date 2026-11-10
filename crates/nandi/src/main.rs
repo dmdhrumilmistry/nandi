@@ -337,7 +337,7 @@ fn ml_classifier(cfg: &Config, base: &Path) -> anyhow::Result<Option<Arc<dyn Cla
     if !nandi_ml::AVAILABLE {
         tracing::warn!(
             "ml.enabled is set but this nandi binary was built without the ML classifier \
-             (rebuild with `cargo build --features ml`); continuing without it"
+             (rebuild with `cargo build -p nandi --features ml`); continuing without it"
         );
         return Ok(None);
     }

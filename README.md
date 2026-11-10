@@ -19,7 +19,8 @@ APIs, MCP servers, other agents over A2A, the host itself) and gives you:
   consequential tools (send, write, exec, pay) are escalated, and calls that
   reuse values copied from untrusted output are held for approval.
 - **Detection**: secrets, PII, prompt injection, SSRF, honeytokens, with
-  base64 / hex / URL decoding, and redaction.
+  base64 / hex / URL decoding, and redaction; an optional ONNX classifier
+  scores untrusted content for injections.
 - **Behaviour analytics**: per-agent tool-sequence models, loop and rate
   detection, temporal rules, plan-locked execution.
 - **Controls**: human approval queue, kill switch, token and call budgets.
@@ -44,7 +45,7 @@ Pre-release, under active development.
 - [x] Host sensor (procfs backend)
 - [x] Gateway (LLM, MCP, A2A), stdio wrapper, coding-agent hooks, admin API, dashboard, CLI
 - [ ] eBPF sensor backend
-- [ ] Optional ONNX injection classifier
+- [x] Optional ONNX injection classifier (`--features ml`, off by default)
 
 ## Quick start
 

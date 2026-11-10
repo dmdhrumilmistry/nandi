@@ -116,8 +116,10 @@ jobs:
           "$BIN" run -c "$DIR/nandi.yaml" 2> "$DIR/log" & PID=$!
           for i in $(seq 1 120); do curl -sf http://127.0.0.1:8788/healthz >/dev/null && break; sleep 0.5; done
           curl -sf http://127.0.0.1:8788/healthz
+          RSS=$(awk '/VmRSS/ {print $2}' /proc/$PID/status)
           kill $PID; wait $PID || true
           cat "$DIR/log"
+          echo "gateway idle RSS with the classifier loaded: $((RSS / 1024)) MiB" | tee -a "$GITHUB_STEP_SUMMARY"
           grep -q 'prompt-injection classifier loaded' "$DIR/log"
           # A model that cannot be loaded stops startup under fail_mode: closed.
           printf 'ml:\n  enabled: true\n  model: %s/missing.onnx\n' "$DIR" >> "$DIR/base.yaml"
