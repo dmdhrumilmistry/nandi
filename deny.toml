@@ -1,5 +1,7 @@
 [graph]
 all-features = false
+# Also check the optional ML classifier's dependencies (ort, tokenizers).
+features = ["nandi/ml"]
 
 [advisories]
 version = 2
@@ -17,6 +19,9 @@ ignore = [
   # proc-macro-error2 (via biscuit-auth's datalog macros) is a compile-time
   # proc-macro helper with no runtime code in the binary.
   { id = "RUSTSEC-2026-0173", reason = "build-time proc-macro dependency of biscuit-auth" },
+  # paste (via tokenizers, only with the optional `ml` feature) is an
+  # unmaintained but finished compile-time proc-macro with no runtime code.
+  { id = "RUSTSEC-2024-0436", reason = "build-time proc-macro dependency of tokenizers (ml feature)" },
 ]
 
 [licenses]

@@ -106,6 +106,18 @@ detect:
   # Canary strings; any appearance in egress is treated as exfiltration.
   honeytokens: []
 
+# Optional ONNX prompt-injection classifier run on untrusted content (tool
+# results, inbound A2A messages). Needs a binary built with `--features ml`,
+# an ONNX Runtime library and a model; see docs/usage.md.
+# ml:
+#   enabled: true
+#   model: models/prompt-injection/model.onnx
+#   tokenizer: models/prompt-injection/tokenizer.json
+#   onnxruntime: /opt/onnxruntime/lib/libonnxruntime.so
+#   threshold: 0.9
+#   on_detect: alert
+#   max_tokens: 512
+
 behavior:
   enabled: true
   # learn | detect | frozen

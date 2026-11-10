@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -55,6 +56,76 @@ jobs:
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
           command: check advisories licenses bans sources
+
+  ml:
+    runs-on: ubuntu-latest
+    env:
+      ORT_VERSION: 1.31.1
+      # protectai/deberta-v3-base-prompt-injection-v2 (Apache-2.0), pinned.
+      MODEL_REPO: protectai/deberta-v3-base-prompt-injection-v2
+      MODEL_REV: 90c9989b1a342275dd0d1a95aad283c04e075671
+      ASSETS: ${{ github.workspace }}/.ml-assets
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ml
+      - run: cargo clippy -p nandi -p nandi-ml --features nandi/ml --all-targets --locked -- -D warnings
+      - run: cargo build -p nandi --features ml --locked
+      - run: cargo test -p nandi-ml --features onnx --locked
+      - run: cargo test -p nandi --features ml --locked --bin nandi
+      - name: Cache ONNX Runtime and model
+        id: assets
+        uses: actions/cache@v4
+        with:
+          path: .ml-assets
+          key: ml-assets-ort${{ env.ORT_VERSION }}-${{ env.MODEL_REV }}
+      - name: Download ONNX Runtime and model
+        if: steps.assets.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p "$ASSETS/model"
+          curl -fsSL --retry 3 "https://github.com/microsoft/onnxruntime/releases/download/v$ORT_VERSION/onnxruntime-linux-x64-$ORT_VERSION.tgz" \
+            | tar -xz -C "$ASSETS"
+          for f in model.onnx tokenizer.json config.json; do
+            curl -fsSL --retry 3 -o "$ASSETS/model/$f" "https://huggingface.co/$MODEL_REPO/resolve/$MODEL_REV/onnx/$f"
+          done
+          du -sh "$ASSETS"/*
+      - name: End-to-end classifier test (real model)
+        run: |
+          set -euo pipefail
+          export ORT_DYLIB_PATH="$ASSETS/onnxruntime-linux-x64-$ORT_VERSION/lib/libonnxruntime.so"
+          export NANDI_ML_MODEL="$ASSETS/model/model.onnx"
+          cargo test -p nandi-ml --features onnx --locked -- --ignored --nocapture 2>&1 | tee ml.txt
+          echo '### ML classifier (debug build, ONNX Runtime release, 1 intra-op thread)' >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          grep -E 'load:|score|warm|Vm' ml.txt >> "$GITHUB_STEP_SUMMARY" || true
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+      - name: Gateway starts with the classifier
+        run: |
+          set -euo pipefail
+          BIN=target/debug/nandi
+          DIR=$(mktemp -d)
+          "$BIN" init --dir "$DIR" >/dev/null
+          cp "$DIR/nandi.yaml" "$DIR/base.yaml"
+          printf 'ml:\n  enabled: true\n  model: %s\n  onnxruntime: %s\n' \
+            "$ASSETS/model/model.onnx" "$ASSETS/onnxruntime-linux-x64-$ORT_VERSION/lib/libonnxruntime.so" >> "$DIR/nandi.yaml"
+          "$BIN" run -c "$DIR/nandi.yaml" 2> "$DIR/log" & PID=$!
+          for i in $(seq 1 120); do curl -sf http://127.0.0.1:8788/healthz >/dev/null && break; sleep 0.5; done
+          curl -sf http://127.0.0.1:8788/healthz
+          RSS=$(awk '/VmRSS/ {print $2}' /proc/$PID/status)
+          kill $PID; wait $PID || true
+          cat "$DIR/log"
+          echo "gateway idle RSS with the classifier loaded: $((RSS / 1024)) MiB" | tee -a "$GITHUB_STEP_SUMMARY"
+          grep -q 'prompt-injection classifier loaded' "$DIR/log"
+          # A model that cannot be loaded stops startup under fail_mode: closed.
+          printf 'ml:\n  enabled: true\n  model: %s/missing.onnx\n' "$DIR" >> "$DIR/base.yaml"
+          if "$BIN" run -c "$DIR/base.yaml" 2> "$DIR/err"; then echo "expected startup to fail"; exit 1; fi
+          cat "$DIR/err"
+          grep -q 'loading the ML classifier' "$DIR/err"
 
   static-build:
     strategy:
