@@ -17,6 +17,19 @@ these numbers substantially; see its [cost section](../guides/ml-classifier.md#c
 
 ## Docker
 
+Images for `linux/amd64` and `linux/arm64` are published to Docker Hub as
+`dmdhrumilmistry/nandi` (`:<version>` and `:latest` for releases, `:main` for
+the latest commit). The image is the static binary on an empty base, running
+as uid 65532.
+
+```sh
+docker run --rm -p 8787:8787 -p 8788:8788 \
+  -v "$PWD/nandi.yaml:/etc/nandi/nandi.yaml:ro" -v nandi-data:/var/lib/nandi \
+  -e NANDI_ADMIN_TOKEN=change-me dmdhrumilmistry/nandi:0.1.0
+```
+
+To build it yourself:
+
 ```sh
 docker build -t nandi .
 docker run --rm -p 8787:8787 -p 8788:8788 \
@@ -27,6 +40,23 @@ Inside a container the listeners must bind `0.0.0.0` (set `listen.proxy` and
 `admin.listen` accordingly) and `admin.token` must be set, because without a
 token the admin API only answers loopback clients. Mount a writable volume
 for `data_dir`.
+
+## Kubernetes
+
+The [nandi Helm chart](https://github.com/dmdhrumilmistry/helm-charts/tree/main/nandi)
+runs the gateway as a single-replica StatefulSet with the audit log on a
+persistent volume, separate Services for agent traffic (the proxy) and for
+operators (the dashboard and admin API), optional Ingresses, a generated
+admin token, NetworkPolicies and a Prometheus ServiceMonitor.
+
+```sh
+helm repo add dmdhrumilmistry https://dmdhrumilmistry.github.io/helm-charts
+helm install nandi dmdhrumilmistry/nandi --namespace nandi --create-namespace
+```
+
+Agents in the cluster then use `http://nandi-proxy.nandi:8787/<route>` as their
+base URL. nandi keeps sessions, approvals and the audit log in one process, so
+it runs as one replica; run one release per team or environment to scale out.
 
 ## systemd
 

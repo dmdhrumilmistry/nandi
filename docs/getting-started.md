@@ -13,12 +13,16 @@ nandi is a single binary with no runtime dependencies.
 cargo install --locked --git https://github.com/dmdhrumilmistry/nandi nandi
 ```
 
-**Docker:**
+**Docker** (`linux/amd64` and `linux/arm64`):
 
 ```sh
-git clone https://github.com/dmdhrumilmistry/nandi && cd nandi
-docker build -t nandi .
+docker pull dmdhrumilmistry/nandi:0.1.0
 ```
+
+**Kubernetes:** the [Helm chart](operations/deployment.md#kubernetes).
+
+**Prebuilt binaries** for Linux (static) and macOS are attached to each
+[GitHub release](https://github.com/dmdhrumilmistry/nandi/releases).
 
 The image contains a static binary on an empty base and runs as an
 unprivileged user. See [Deployment](operations/deployment.md) for the
