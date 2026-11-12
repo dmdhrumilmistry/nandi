@@ -13,6 +13,7 @@
   --allow-fg: #1d6b1d; --allow-bg: #e8f4e6; --alert-fg: #7d5700; --alert-bg: #fbf1d5;
   --redact-fg: #33466d; --redact-bg: #e9edf5; --ask-fg: #93411a; --ask-bg: #fbe9e0;
   --deny-fg: #a12a2a; --deny-bg: #f8e4e3; --row-hover: #f8f7f3; --shadow: 0 1px 0 rgba(29, 28, 26, .04);
+  --v-allow: #c9c4b8; --v-alert: #e9a915; --v-redact: #6f86b8; --v-ask: #e57a4c; --v-deny: #cf3a3a; --orbit: #d8d4cb;
   --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --mono: ui-monospace, "SF Mono", SFMono-Regular, "JetBrains Mono", Menlo, Consolas, monospace;
 }
@@ -23,6 +24,7 @@
     --allow-fg: #8fd88f; --allow-bg: rgba(12, 163, 12, .15); --alert-fg: #f6c766; --alert-bg: rgba(250, 178, 25, .13);
     --redact-fg: #b4c4e8; --redact-bg: rgba(143, 176, 234, .13); --ask-fg: #f2a582; --ask-bg: rgba(236, 131, 90, .15);
     --deny-fg: #f19393; --deny-bg: rgba(208, 59, 59, .17); --row-hover: #20201e; --shadow: none;
+    --v-allow: #4a4843; --v-alert: #e3a823; --v-redact: #8ea4d6; --v-ask: #ee8b60; --v-deny: #e25757; --orbit: #34332f;
   }
 }
 * { box-sizing: border-box; }
@@ -82,7 +84,8 @@ main { padding: 16px 20px 28px; max-width: 1680px; margin: 0 auto; }
 .side { display: grid; gap: 16px; }
 .card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); min-width: 0; }
 .card > header { display: flex; align-items: center; gap: 8px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
-.card > header h2 { margin: 0; font-size: 13px; font-weight: 640; }
+.card > header h2 { margin: 0; font-size: 13px; font-weight: 640; white-space: nowrap; }
+.card > header p { margin: 0 0 0 4px; color: var(--muted); font-size: 12px; }
 .count { color: var(--muted); font-variant-numeric: tabular-nums; }
 .card > header .spacer + * { margin-left: auto; }
 .empty { padding: 18px 14px; color: var(--muted); }
@@ -167,9 +170,87 @@ pre { margin: 6px 0 0; padding: 10px 12px; max-height: 280px; overflow: auto; ba
 .meter .pct { width: 34px; text-align: right; font-variant-numeric: tabular-nums; color: var(--ink-2); font-size: 12px; }
 .share { height: 4px; border-radius: 2px; background: var(--accent); opacity: .85; margin-top: 4px; }
 
+/* ---------- map view ---------- */
+.seg { display: inline-flex; border: 1px solid var(--line-2); border-radius: 8px; overflow: hidden; }
+.seg button { height: 28px; padding: 0 12px; white-space: nowrap; border: 0; background: var(--surface); color: var(--ink-2); font: 500 12px var(--sans); cursor: pointer; }
+.seg button + button { border-left: 1px solid var(--line-2); }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--surface); }
+.map-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 14px; }
+.map-filters .seg { flex: none; }
+.map-filters .muted { color: var(--muted); }
+.map-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); gap: 16px; }
+.map-grid .wide { grid-column: 1 / -1; }
+.chart { position: relative; padding: 10px 14px 14px; }
+.chart svg { display: block; width: 100%; height: auto; overflow: visible; }
+.legend { display: flex; flex-wrap: wrap; gap: 14px; padding: 10px 14px 0; color: var(--ink-2); font-size: 12px; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; }
+.legend .shape { width: 12px; height: 12px; border: 2px solid var(--ink); background: var(--surface); }
+.legend .shape.agent { border-radius: 50%; background: var(--ink); }
+.legend .shape.server { border-radius: 3px; }
+.legend .shape.model { transform: rotate(45deg) scale(.85); }
+.legend .shape.tool { width: 8px; height: 8px; border-radius: 50%; border-width: 1.5px; }
+.tip { position: absolute; pointer-events: none; z-index: 5; min-width: 160px; padding: 8px 10px; background: var(--surface);
+  border: 1px solid var(--line-2); border-radius: 8px; box-shadow: 0 6px 18px rgba(0,0,0,.12); font-size: 12px; }
+.tip .t { color: var(--muted); margin-bottom: 4px; }
+.tip .row { display: flex; align-items: center; gap: 8px; }
+.tip .row b { font-variant-numeric: tabular-nums; min-width: 28px; text-align: right; font-weight: 650; }
+.tip .row s { display: inline-block; width: 12px; height: 3px; border-radius: 2px; text-decoration: none; }
+.tip .row span { color: var(--ink-2); }
+/* mandala */
+.orbit { fill: none; stroke: var(--orbit); stroke-width: 1; stroke-dasharray: 2 6; }
+.orbit-label { fill: var(--muted); font: 11px var(--sans); }
+.petal { fill: none; stroke: var(--orbit); stroke-width: 1; }
+.edge { fill: none; stroke-linecap: round; opacity: .9; }
+.edge.allow { opacity: .7; }
+.edge-g.dim, .node.dim, .nlabel.dim { opacity: .12; }
+.leaf { stroke: var(--line-2); stroke-width: 1; }
+.node { cursor: default; }
+.node .shape { stroke: var(--ink); stroke-width: 1.6; fill: var(--surface); }
+.node.agent .shape { fill: var(--ink); }
+.node .ring { fill: none; stroke-width: 2.5; }
+.node:focus { outline: none; }
+.node:focus .hit, .node:hover .hit { stroke: var(--accent); stroke-width: 1.5; stroke-dasharray: 3 3; }
+.hit { fill: transparent; }
+.nlabel { fill: var(--ink-2); font: 11.5px var(--sans); paint-order: stroke; stroke: var(--surface); stroke-width: 4px; stroke-linejoin: round; }
+.nlabel.strong { fill: var(--ink); font-weight: 600; }
+.edge-g:focus { outline: none; }
+.edge-g:focus .edge, .edge-g:hover .edge { filter: brightness(.9); }
+.nlabel.small { fill: var(--muted); font-size: 10.5px; }
+.gate-bg { fill: var(--surface); stroke: var(--ink); stroke-width: 1.6; }
+.gate-mark { fill: var(--ink); }
+.gate-label { fill: var(--muted); font: 600 11px var(--sans); letter-spacing: .06em; }
+/* flow */
+.col-bar { fill: var(--ink); }
+.flow-label { fill: var(--ink-2); font: 12px var(--sans); }
+.flow-count { fill: var(--muted); font: 11px var(--mono); }
+.band { opacity: .85; }
+.band:hover, .band:focus { opacity: 1; outline: none; }
+.gate-line { stroke: var(--line-2); stroke-width: 1; stroke-dasharray: 2 4; }
+/* timeline */
+.grid-line { stroke: var(--line); stroke-width: 1; }
+.axis { fill: var(--muted); font: 11px var(--sans); font-variant-numeric: tabular-nums; }
+.xhair { stroke: var(--ink-2); stroke-width: 1; }
+table.tv { width: 100%; border-collapse: collapse; font-size: 12px; }
+table.tv th, table.tv td { padding: 6px 10px; border-bottom: 1px solid var(--line); text-align: left; }
+table.tv td.n, table.tv th.n { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* views */
+.tabs { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--line-2); border-radius: 8px; background: var(--surface-2); }
+.tabs button { height: 26px; padding: 0 12px; border: 0; border-radius: 6px; background: none; color: var(--ink-2); font: 500 12px var(--sans); cursor: pointer; }
+.tabs button[aria-selected="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px rgba(0, 0, 0, .08); }
+.map-note { color: var(--muted); font-size: 12px; }
+.chart .empty { padding: 40px 0; text-align: center; color: var(--muted); }
+.empty-art { display: block; width: 120px; height: 64px; margin: 0 auto 6px; fill: none; stroke: var(--line-2); stroke-width: 1.6; stroke-linecap: round; }
+.empty-art circle { fill: var(--line-2); stroke: none; }
+.empty-art circle.held { fill: var(--v-ask); }
+.empty-art circle.hollow { fill: var(--surface); stroke: var(--line-2); stroke-width: 1.4; }
+
 @media (max-width: 1180px) {
   .kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .grid, .grid2 { grid-template-columns: minmax(0, 1fr); }
+  .grid, .grid2, .map-grid { grid-template-columns: minmax(0, 1fr); }
+  .map-filters > .muted { display: none; }
+  .seg button { padding: 0 9px; }
 }
 @media (max-width: 700px) {
   .top { flex-wrap: wrap; }
@@ -190,6 +271,10 @@ pre { margin: 6px 0 0; padding: 10px 12px; max-height: 280px; overflow: auto; ba
   </div>
   <span id="mode" class="pill">mode</span>
   <span class="pill" title="Live event stream"><span id="conn-dot" class="dot"></span><span id="conn">Connecting</span></span>
+  <div class="tabs" role="tablist" aria-label="Views">
+    <button type="button" role="tab" id="tab-overview" aria-controls="view-overview" aria-selected="true">Overview</button>
+    <button type="button" role="tab" id="tab-map" aria-controls="view-map" aria-selected="false">Map</button>
+  </div>
   <span class="spacer"></span>
   <form id="filters" role="search" aria-label="Filter events">
     <label for="f-agent" hidden>Agent</label>
@@ -219,6 +304,7 @@ pre { margin: 6px 0 0; padding: 10px 12px; max-height: 280px; overflow: auto; ba
 <div id="err" class="banner" role="status" hidden></div>
 
 <main>
+<div id="view-overview" role="tabpanel" aria-labelledby="tab-overview">
   <section class="kpis" aria-label="Summary">
     <div class="tile"><div class="label">Events in view</div><div class="value" id="k-events">0</div><div class="sub" id="k-events-sub">latest first</div></div>
     <div class="tile"><div class="label">Blocked</div><div class="value" id="k-blocked">0</div><div class="sub" id="k-blocked-sub">denied in view</div></div>
@@ -273,6 +359,37 @@ pre { margin: 6px 0 0; padding: 10px 12px; max-height: 280px; overflow: auto; ba
       <div id="usage"></div>
     </section>
   </div>
+</div>
+<div id="view-map" role="tabpanel" aria-labelledby="tab-map" hidden>
+  <div class="map-filters" role="group" aria-label="Time range">
+    <span class="muted">Showing the last</span>
+    <div class="seg" id="range">
+      <button type="button" data-w="900">15 min</button>
+      <button type="button" data-w="3600" aria-pressed="true">1 hour</button>
+      <button type="button" data-w="21600">6 hours</button>
+      <button type="button" data-w="86400">24 hours</button>
+    </div>
+    <span class="spacer"></span>
+    <button class="btn" type="button" id="as-table" aria-pressed="false">Show as table</button>
+  </div>
+  <div class="map-grid">
+    <section class="card" aria-labelledby="h-mandala">
+      <header><h2 id="h-mandala">Kailash map</h2><p>Agents on the inner ring, what they reached on the middle ring, tools on the outer ring. Every path passes the gate.</p></header>
+      <div class="legend" id="mandala-legend"></div>
+      <div class="chart" id="mandala"></div>
+    </section>
+    <section class="card" aria-labelledby="h-flow">
+      <header><h2 id="h-flow">Through the gate</h2><p>Calls from each agent to each destination, split by decision</p></header>
+      <div class="legend" id="flow-legend"></div>
+      <div class="chart" id="flow"></div>
+    </section>
+    <section class="card wide" aria-labelledby="h-time">
+      <header><h2 id="h-time">Decisions over time</h2><p id="time-sub"></p></header>
+      <div class="legend" id="time-legend"></div>
+      <div class="chart" id="timeline"></div>
+    </section>
+  </div>
+</div>
 </main>
 
 <script>
@@ -693,6 +810,385 @@ $("killform").addEventListener("submit", (e) => {
   $("kill-agent").value = "";
   act("/v1/agents/" + encodeURIComponent(a) + "/kill");
 });
+
+// ----- map view ----------------------------------------------------------------
+const NS = "http://www.w3.org/2000/svg";
+const ORDER = ["allow", "alert", "redact", "ask", "deny"];
+const LABEL = { allow: "Allowed", alert: "Alert", redact: "Redacted", ask: "Held", deny: "Denied" };
+const NODE_KIND = { agent: "Agent", server: "MCP server", model: "Model", peer: "Agent (A2A)", tool: "Tool", host: "Host" };
+const MARK = [[1.5, 3, 21, 2.2], [3.5, 7.6, 17, 1.8], [4.5, 11.6, 15, 1.8], [6, 5, 2.4, 16], [15.6, 5, 2.4, 16]];
+let windowSecs = 3600, graphData = null, tableMode = false, mapTimer = null;
+
+function s(tag, attrs, ...kids) {
+  const e = document.createElementNS(NS, tag);
+  for (const [k, v] of Object.entries(attrs || {})) if (v !== null && v !== undefined) e.setAttribute(k, v);
+  for (const k of kids) if (k) e.append(k instanceof Node ? k : document.createTextNode(String(k)));
+  return e;
+}
+function hh(tag, attrs, ...kids) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) if (v !== null && v !== undefined) e.setAttribute(k, v);
+  for (const k of kids) if (k !== null && k !== undefined) e.append(k instanceof Node ? k : String(k));
+  return e;
+}
+const total = (c) => ORDER.reduce((a, v) => a + (c[v] || 0), 0);
+const worst = (c) => ORDER.slice().reverse().find((v) => (c[v] || 0) > 0) || "allow";
+const color = (v) => `var(--v-${v})`;
+
+function legend(id, extra) {
+  const box = $(id);
+  box.replaceChildren(...ORDER.map((v) => { const i = hh("i"); i.style.background = color(v); return hh("span", {}, i, LABEL[v]); }));
+  if (extra) for (const x of extra) box.append(x);
+}
+
+// ---------- tooltip ----------
+function tipFor(container) {
+  let t = container.querySelector(".tip");
+  if (!t) { t = hh("div", { class: "tip", role: "status" }); t.hidden = true; container.append(t); }
+  return t;
+}
+function showTip(container, x, y, title, counts) {
+  const t = tipFor(container);
+  t.replaceChildren(hh("div", { class: "t" }, title));
+  for (const v of ORDER.slice().reverse()) {
+    const n = counts[v] || 0;
+    if (!n && v !== "allow") continue;
+    const key = hh("s"); key.style.background = color(v);
+    t.append(hh("div", { class: "row" }, hh("b", {}, String(n)), key, hh("span", {}, LABEL[v])));
+  }
+  t.hidden = false;
+  const r = container.getBoundingClientRect();
+  const left = Math.min(x + 14, r.width - t.offsetWidth - 6);
+  t.style.left = Math.max(6, left) + "px";
+  t.style.top = Math.max(6, y + 14) + "px";
+}
+function hideTip(container) { const t = container.querySelector(".tip"); if (t) t.hidden = true; }
+function bindTip(el, container, title, counts) {
+  const at = (e) => { const r = container.getBoundingClientRect(); showTip(container, e.clientX - r.left, e.clientY - r.top, title, counts); };
+  el.addEventListener("pointermove", at);
+  el.addEventListener("pointerleave", () => hideTip(container));
+  el.addEventListener("focus", () => { const r = el.getBoundingClientRect(), c = container.getBoundingClientRect(); showTip(container, r.left - c.left + r.width / 2, r.top - c.top + r.height / 2, title, counts); });
+  el.addEventListener("blur", () => hideTip(container));
+}
+
+// ---------- Kailash map (radial) ----------
+function mandala(g) {
+  const box = $("mandala");
+  const W = 720, C = 360, R1 = 128, R2 = 236, R3 = 318;
+  const svg = s("svg", { viewBox: "0 0 720 720", role: "group", "aria-label": "Radial map of agents, destinations and tools" });
+  // orbits and petals
+  for (const r of [R1, R2, R3]) svg.append(s("circle", { class: "orbit", cx: C, cy: C, r }));
+  for (let i = 0; i < 16; i++) {
+    const a = (i / 16) * Math.PI * 2, r0 = 52, r1 = 70;
+    const p = (r, d) => [C + r * Math.cos(a + d), C + r * Math.sin(a + d)];
+    const [x0, y0] = p(r0, -0.12), [x1, y1] = p(r1, 0), [x2, y2] = p(r0, 0.12);
+    svg.append(s("path", { class: "petal", d: `M${x0} ${y0} Q${x1} ${y1} ${x2} ${y2}` }));
+  }
+  const agents = g.nodes.filter((n) => n.kind === "agent").sort((a, b) => a.label.localeCompare(b.label));
+  const dests = g.nodes.filter((n) => n.kind !== "agent" && n.kind !== "tool");
+  const tools = g.nodes.filter((n) => n.kind === "tool");
+  const pos = {};
+  const ang = (i, n, off) => -Math.PI / 2 + ((i + 0.5) / n) * Math.PI * 2 + (off || 0);
+  agents.forEach((n, i) => { const a = ang(i, agents.length); pos[n.id] = { a, x: C + R1 * Math.cos(a), y: C + R1 * Math.sin(a) }; });
+  // destinations: order by the mean angle of the agents that reach them, to limit crossings
+  const meanAngle = (d) => {
+    let sx = 0, sy = 0;
+    for (const e of g.edges) if (e.target === d.id) { const p = pos[e.source]; const w = total(e.counts); sx += Math.cos(p.a) * w; sy += Math.sin(p.a) * w; }
+    return Math.atan2(sy, sx);
+  };
+  dests.sort((a, b) => meanAngle(a) - meanAngle(b));
+  const rot = dests.length ? meanAngle(dests[0]) - ang(0, dests.length) : 0;
+  dests.forEach((n, i) => { const a = ang(i, dests.length, rot); pos[n.id] = { a, x: C + R2 * Math.cos(a), y: C + R2 * Math.sin(a) }; });
+  // tools: fanned out around their destination
+  const byParent = {};
+  for (const t of tools) (byParent[t.parent] = byParent[t.parent] || []).push(t);
+  const span = (Math.PI * 2) / Math.max(dests.length, 1) * 0.8;
+  for (const [pid, list] of Object.entries(byParent)) {
+    const p = pos[pid]; if (!p) continue;
+    list.sort((a, b) => a.label.localeCompare(b.label));
+    list.forEach((t, i) => {
+      const a = p.a + (list.length === 1 ? 0 : (i / (list.length - 1) - 0.5) * Math.min(span, 0.14 * list.length));
+      pos[t.id] = { a, x: C + R3 * Math.cos(a), y: C + R3 * Math.sin(a) };
+    });
+  }
+  const maxEdge = Math.max(1, ...g.edges.map((e) => total(e.counts)));
+  const edgeLayer = s("g", {}), leafLayer = s("g", {}), nodeLayer = s("g", {}), labelLayer = s("g", {});
+  // tool spokes
+  for (const t of tools) { const a = pos[t.parent], b = pos[t.id]; if (a && b) leafLayer.append(s("line", { class: "leaf", x1: a.x, y1: a.y, x2: b.x, y2: b.y })); }
+  // edges through the gate (quadratic curve with its control point near the centre)
+  const edgeEls = [];
+  for (const e of g.edges.slice().sort((a, b) => total(b.counts) - total(a.counts))) {
+    const a = pos[e.source], b = pos[e.target]; if (!a || !b) continue;
+    const n = total(e.counts), flagged = n - (e.counts.allow || 0), w = worst(e.counts);
+    const d = `M${a.x.toFixed(1)} ${a.y.toFixed(1)} C${C} ${C} ${C} ${C} ${b.x.toFixed(1)} ${b.y.toFixed(1)}`;
+    const width = 1.4 + 7 * Math.sqrt(n / maxEdge);
+    const grp = s("g", { class: "edge-g", tabindex: "0" });
+    grp.append(s("path", { class: "edge allow", d, stroke: color("allow"), "stroke-width": width.toFixed(2) }));
+    if (flagged > 0) {
+      const fw = Math.max(1.6, width * Math.sqrt(flagged / n));
+      grp.append(s("path", { class: "edge flagged", d, stroke: color(w), "stroke-width": fw.toFixed(2) }));
+    }
+    grp.dataset.s = e.source; grp.dataset.t = e.target;
+    edgeEls.push(grp);
+    edgeLayer.append(grp);
+  }
+  // gate at the centre
+  const gate = s("g", { transform: `translate(${C} ${C})` }, s("circle", { class: "gate-bg", r: 34 }));
+  const mark = s("g", { transform: "translate(-15 -18) scale(1.25)" });
+  for (const [x, y, w, hh] of MARK) mark.append(s("rect", { class: "gate-mark", x, y, width: w, height: hh, rx: 0.8 }));
+  gate.append(mark, s("text", { class: "gate-label", y: 52, "text-anchor": "middle" }, "NANDI"));
+  // nodes
+  const sizeOf = (n) => Math.min(17, 5 + 2.2 * Math.sqrt(total(n.counts)));
+  const all = [...agents, ...dests, ...tools];
+  const nodeEls = [];
+  for (const n of all) {
+    const p = pos[n.id]; if (!p) continue;
+    const r = n.kind === "tool" ? Math.min(7, 3 + Math.sqrt(total(n.counts))) : sizeOf(n);
+    const w = worst(n.counts);
+    const grp = s("g", { class: `node ${n.kind}`, transform: `translate(${p.x.toFixed(1)} ${p.y.toFixed(1)})`, tabindex: n.kind === "tool" ? null : "0",
+      role: "img", "aria-label": `${NODE_KIND[n.kind] || n.kind} ${n.label}: ${total(n.counts)} events` });
+    grp.dataset.id = n.id;
+    let shape;
+    if (n.kind === "server") shape = s("rect", { class: "shape", x: -r, y: -r, width: 2 * r, height: 2 * r, rx: 3 });
+    else if (n.kind === "model" || n.kind === "peer") shape = s("rect", { class: "shape", x: -r * .82, y: -r * .82, width: 1.64 * r, height: 1.64 * r, rx: 2, transform: "rotate(45)" });
+    else shape = s("circle", { class: "shape", r });
+    grp.append(s("circle", { class: "hit", r: Math.max(14, r + 6) }), shape);
+    if (w !== "allow") grp.append(s("circle", { class: "ring", r: r + 4.5, stroke: color(w) }));
+    nodeLayer.append(grp);
+    nodeEls.push(grp);
+    // labels: agents and destinations always, tools when few
+    if (n.kind !== "tool" || tools.length <= 18) {
+      const out = n.kind === "tool" ? 14 : r + 10;
+      const lx = p.x + out * Math.cos(p.a), ly = p.y + out * Math.sin(p.a);
+      const right = Math.cos(p.a) >= 0.15, left = Math.cos(p.a) <= -0.15;
+      const label = n.kind === "agent" ? n.label : n.label.length > 26 ? n.label.slice(0, 25) + "…" : n.label;
+      const t = s("text", { class: "nlabel" + (n.kind === "tool" ? " small" : ""), x: lx.toFixed(1), y: (ly + 4).toFixed(1),
+        "text-anchor": right ? "start" : left ? "end" : "middle" }, label);
+      if (n.kind === "agent") { // agents: label under the node
+        t.setAttribute("x", p.x.toFixed(1));
+        t.setAttribute("y", (p.y + r + 15).toFixed(1));
+        t.setAttribute("text-anchor", "middle");
+        t.classList.add("strong");
+      }
+      t.dataset.id = n.id;
+      labelLayer.append(t);
+    }
+    bindTip(grp, box, `${NODE_KIND[n.kind] || n.kind}: ${n.label}`, n.counts);
+    // focus mode: highlight this node's neighbourhood
+    const focusOn = () => {
+      const keep = new Set([n.id]);
+      for (const e of g.edges) if (e.source === n.id || e.target === n.id) { keep.add(e.source); keep.add(e.target); }
+      if (n.kind === "tool") keep.add(n.parent);
+      for (const t of tools) if (keep.has(t.parent) && (n.kind !== "agent" || t.parent)) keep.add(t.id);
+      edgeEls.forEach((el) => el.classList.toggle("dim", !(keep.has(el.dataset.s) && keep.has(el.dataset.t))));
+      nodeEls.forEach((el) => el.classList.toggle("dim", !keep.has(el.dataset.id)));
+      labelLayer.querySelectorAll("text").forEach((el) => el.classList.toggle("dim", !keep.has(el.dataset.id)));
+    };
+    const clear = () => { edgeEls.forEach((el) => el.classList.remove("dim")); nodeEls.forEach((el) => el.classList.remove("dim")); labelLayer.querySelectorAll("text").forEach((el) => el.classList.remove("dim")); };
+    grp.addEventListener("pointerenter", focusOn); grp.addEventListener("focus", focusOn);
+    grp.addEventListener("pointerleave", clear); grp.addEventListener("blur", clear);
+  }
+  for (const el of edgeEls) {
+    const e = g.edges.find((x) => x.source === el.dataset.s && x.target === el.dataset.t);
+    const lbl = (id) => (g.nodes.find((n) => n.id === id) || { label: id }).label;
+    bindTip(el, box, `${lbl(e.source)} → ${lbl(e.target)}`, e.counts);
+  }
+  svg.append(leafLayer, edgeLayer, gate, nodeLayer, labelLayer);
+  box.replaceChildren(svg);
+  legend("mandala-legend", [
+    hh("span", {}, hh("i", { class: "shape agent" }), "Agent"),
+    hh("span", {}, hh("i", { class: "shape server" }), "MCP server"),
+    hh("span", {}, hh("i", { class: "shape model" }), "Model or A2A agent"),
+    hh("span", {}, hh("i", { class: "shape tool" }), "Tool"),
+  ]);
+}
+
+// ---------- gate flow ----------
+function flow(g) {
+  const box = $("flow");
+  const agents = g.nodes.filter((n) => n.kind === "agent");
+  const dests = g.nodes.filter((n) => n.kind !== "agent" && n.kind !== "tool");
+  const W = 900, top = 10, gap = 12, colW = 10, xL = 170, xR = W - 230;
+  const totalAll = Math.max(1, g.edges.reduce((a, e) => a + total(e.counts), 0));
+  const avail = Math.max(760, 30 * Math.max(agents.length, dests.length));
+  const scaleOf = (list) => (avail - gap * (list.length - 1)) / Math.max(1, list.reduce((a, n) => a + total(n.counts), 0));
+  const k = Math.min(scaleOf(agents), scaleOf(dests));
+  const H = top * 2 + avail;
+  const layout = (list, x) => {
+    const used = list.reduce((a, n) => a + Math.max(4, total(n.counts) * k), 0) + gap * (list.length - 1);
+    let y = top + (avail - used) / 2;
+    const out = {};
+    for (const n of list) { const hh = Math.max(4, total(n.counts) * k); out[n.id] = { x, y, h: hh, cur: y }; y += hh + gap; }
+    return out;
+  };
+  agents.sort((a, b) => total(b.counts) - total(a.counts));
+  // destinations in the order agents reach them, to reduce crossings
+  const rank = Object.fromEntries(agents.map((a, i) => [a.id, i]));
+  const firstAgent = (d) => Math.min(...g.edges.filter((e) => e.target === d.id).map((e) => rank[e.source] ?? 99));
+  dests.sort((a, b) => firstAgent(a) - firstAgent(b) || total(b.counts) - total(a.counts));
+  const L = layout(agents, xL), R = layout(dests, xR);
+  const svg = s("svg", { viewBox: `0 0 ${W} ${H}`, role: "group", "aria-label": "Flow of calls from agents to destinations by decision" });
+  // gate in the middle
+  const gx = (xL + xR) / 2;
+  svg.append(s("line", { class: "gate-line", x1: gx, x2: gx, y1: top, y2: H - top }));
+  const mk = s("g", { transform: `translate(${gx - 12} ${top - 2})` });
+  for (const [x, y, w, hh] of MARK) mk.append(s("rect", { class: "gate-mark", x, y, width: w, height: hh, rx: 0.8 }));
+  const bands = s("g", {});
+  const edges = g.edges.slice().sort((a, b) => (rank[a.source] - rank[b.source]) || ((R[a.target]?.y ?? 0) - (R[b.target]?.y ?? 0)));
+  const lbl = (id) => (g.nodes.find((n) => n.id === id) || { label: id }).label;
+  for (const e of edges) {
+    const a = L[e.source], b = R[e.target]; if (!a || !b) continue;
+    for (const v of ORDER.slice().reverse()) {
+      const n = e.counts[v] || 0; if (!n) continue;
+      const th = Math.max(1, n * k);
+      const y0 = a.cur, y1 = b.cur; a.cur += th; b.cur += th;
+      const x0 = a.x + colW, x1 = b.x, mx = (x0 + x1) / 2;
+      const d = `M${x0} ${y0} C${mx} ${y0} ${mx} ${y1} ${x1} ${y1} L${x1} ${y1 + th} C${mx} ${y1 + th} ${mx} ${y0 + th} ${x0} ${y0 + th} Z`;
+      const p = s("path", { class: "band", d, fill: color(v), tabindex: "0", "aria-label": `${lbl(e.source)} to ${lbl(e.target)}: ${n} ${LABEL[v].toLowerCase()}` });
+      const c = {}; c[v] = n;
+      bindTip(p, box, `${lbl(e.source)} → ${lbl(e.target)}`, c);
+      bands.append(p);
+    }
+  }
+  svg.append(bands, mk);
+  for (const n of agents) {
+    const p = L[n.id];
+    svg.append(s("rect", { class: "col-bar", x: p.x, y: p.y, width: colW, height: p.h, rx: 2 }));
+    svg.append(s("text", { class: "flow-label", x: p.x - 10, y: p.y + p.h / 2 + 4, "text-anchor": "end" }, n.label));
+  }
+  for (const n of dests) {
+    const p = R[n.id];
+    svg.append(s("rect", { class: "col-bar", x: p.x, y: p.y, width: colW, height: p.h, rx: 2 }));
+    const t = s("text", { class: "flow-label", x: p.x + colW + 10, y: p.y + p.h / 2 + 4 }, n.label.length > 30 ? n.label.slice(0, 29) + "…" : n.label);
+    svg.append(t);
+  }
+  box.replaceChildren(svg);
+  legend("flow-legend");
+}
+
+// ---------- timeline ----------
+function timeline(g) {
+  const box = $("timeline");
+  const b = g.timeline.buckets, W = 1200, H = 210, padL = 36, padB = 24, padT = 8;
+  const max = Math.max(1, ...b.map((x) => total(x)));
+  // four whole-number ticks: step is 1, 2, 2.5 or 5 times a power of ten
+  const step = ((m) => { const p = Math.pow(10, Math.floor(Math.log10(m))); for (const f of p >= 10 ? [1, 2, 2.5, 5, 10] : [1, 2, 5, 10]) if (f * p >= m) return f * p; return 10 * p; })(Math.max(1, max / 4));
+  const top = step * 4, plotH = H - padB - padT, bw = (W - padL) / b.length;
+  const y = (v) => padT + plotH - (v / top) * plotH;
+  const svg = s("svg", { viewBox: `0 0 ${W} ${H}`, role: "group", "aria-label": "Stacked bars of decisions per time bucket" });
+  for (let i = 0; i <= 4; i++) {
+    const v = (top / 4) * i;
+    svg.append(s("line", { class: "grid-line", x1: padL, x2: W, y1: y(v), y2: y(v) }));
+    svg.append(s("text", { class: "axis", x: padL - 8, y: y(v) + 4, "text-anchor": "end" }, String(v)));
+  }
+  const fmt = (t) => new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
+  const every = Math.ceil(b.length / 8);
+  b.forEach((bk, i) => {
+    const x = padL + i * bw + 1;
+    let acc = 0;
+    for (const v of ORDER) {
+      const n = bk[v] || 0; if (!n) continue;
+      const y0 = y(acc + n), hh = y(acc) - y0;
+      const seg = s("rect", { x, y: y0 + (acc ? 0 : 0), width: Math.max(1, bw - 2), height: Math.max(0, hh - 2), rx: hh > 6 ? 2 : 0, fill: color(v) });
+      svg.append(seg);
+      acc += n;
+    }
+    if (i % every === 0) svg.append(s("text", { class: "axis", x: x + bw / 2, y: H - 6, "text-anchor": "middle" }, fmt(bk.t)));
+  });
+  const xh = s("line", { class: "xhair", y1: padT, y2: padT + plotH, x1: 0, x2: 0, visibility: "hidden" });
+  const hit = s("rect", { x: padL, y: padT, width: W - padL, height: plotH, fill: "transparent", tabindex: "0", "aria-label": "Timeline, use arrow keys to move between buckets" });
+  svg.append(xh, hit);
+  let idx = -1;
+  const show = (i, clientX, clientY) => {
+    idx = Math.max(0, Math.min(b.length - 1, i));
+    const bk = b[idx], cx = padL + idx * bw + bw / 2;
+    xh.setAttribute("x1", cx); xh.setAttribute("x2", cx); xh.setAttribute("visibility", "visible");
+    const r = svg.getBoundingClientRect(), c = box.getBoundingClientRect();
+    const px = clientX !== undefined ? clientX - c.left : (cx / W) * r.width + (r.left - c.left);
+    const py = clientY !== undefined ? clientY - c.top : 40;
+    const end = new Date(bk.t + g.timeline.bucket_secs * 1000);
+    showTip(box, px, py, `${fmt(bk.t)} to ${fmt(end)}  ·  ${total(bk)} events`, bk);
+  };
+  hit.addEventListener("pointermove", (e) => { const r = svg.getBoundingClientRect(); const xx = ((e.clientX - r.left) / r.width) * W; show(Math.floor((xx - padL) / bw), e.clientX, e.clientY); });
+  hit.addEventListener("pointerleave", () => { xh.setAttribute("visibility", "hidden"); hideTip(box); });
+  hit.addEventListener("keydown", (e) => { if (e.key === "ArrowRight") show(idx + 1); if (e.key === "ArrowLeft") show(idx - 1); });
+  hit.addEventListener("focus", () => show(idx < 0 ? b.length - 1 : idx));
+  hit.addEventListener("blur", () => { xh.setAttribute("visibility", "hidden"); hideTip(box); });
+  box.replaceChildren(svg);
+  legend("time-legend");
+  const totals = {}; for (const bk of b) for (const v of ORDER) totals[v] = (totals[v] || 0) + (bk[v] || 0);
+  $("time-sub").textContent = `${total(totals)} decisions in ${g.timeline.bucket_secs >= 60 ? Math.round(g.timeline.bucket_secs / 60) + "-minute" : g.timeline.bucket_secs + "-second"} buckets`;
+}
+
+function table(g) {
+  const lbl = (id) => (g.nodes.find((n) => n.id === id) || { label: id }).label;
+  const rows = g.edges.slice().sort((a, b) => total(b.counts) - total(a.counts)).map((e) =>
+    hh("tr", {}, hh("td", {}, lbl(e.source)), hh("td", {}, lbl(e.target)), ...ORDER.map((v) => hh("td", { class: "n" }, String(e.counts[v] || 0)))));
+  return hh("table", { class: "tv" }, hh("thead", {}, hh("tr", {}, hh("th", {}, "Agent"), hh("th", {}, "Destination"), ...ORDER.map((v) => hh("th", { class: "n" }, LABEL[v])))), hh("tbody", {}, ...rows));
+}
+function toolTable(g) {
+  const lbl = (id) => (g.nodes.find((n) => n.id === id) || { label: id }).label;
+  const rows = g.nodes.filter((n) => n.kind === "tool").sort((a, b) => total(b.counts) - total(a.counts)).map((n) =>
+    hh("tr", {}, hh("td", {}, lbl(n.parent)), hh("td", {}, n.label), ...ORDER.map((v) => hh("td", { class: "n" }, String(n.counts[v] || 0)))));
+  if (!rows.length) return emptyState("No tool calls in this window.");
+  return hh("table", { class: "tv" }, hh("thead", {}, hh("tr", {}, hh("th", {}, "Server"), hh("th", {}, "Tool"), ...ORDER.map((v) => hh("th", { class: "n" }, LABEL[v])))), hh("tbody", {}, ...rows));
+}
+
+
+// A small line drawing of the gate for empty states.
+function gateArt() {
+  const svg = s("svg", { class: "empty-art", viewBox: "0 0 120 64", "aria-hidden": "true" });
+  for (const d of ["M6 56 C36 52 70 58 114 54", "M20 18 Q60 12 100 18", "M26 26 Q60 21 94 26", "M40 26 V56", "M80 26 V56", "M38 30 H42 M78 30 H82"]) {
+    svg.append(s("path", { d }));
+  }
+  for (const [cx, cy, cls] of [[14, 55, ""], [60, 53, "held"], [104, 54, "hollow"]]) svg.append(s("circle", { cx, cy, r: 3.2, class: cls }));
+  return svg;
+}
+function emptyState(text) {
+  return hh("div", { class: "empty" }, gateArt(), hh("p", {}, text));
+}
+
+async function loadGraph() {
+  try {
+    graphData = await api("/v1/graph?window_secs=" + windowSecs, { quiet404: true });
+  } catch (_) { return; }
+  renderMap();
+}
+function renderMap() {
+  const g = graphData;
+  if (!g) {
+    for (const id of ["mandala", "flow", "timeline"]) $(id).replaceChildren(emptyState("The map is drawn from the audit log, which is turned off (audit.enabled)."));
+    return;
+  }
+  if (!g.nodes.length) {
+    for (const id of ["mandala", "flow"]) $(id).replaceChildren(emptyState("Nothing has passed the gate in this window yet."));
+    timeline(g);
+    return;
+  }
+  if (tableMode) { $("mandala").replaceChildren(table(g)); $("flow").replaceChildren(toolTable(g)); }
+  else { mandala(g); flow(g); }
+  timeline(g);
+}
+function showView(name) {
+  const map = name === "map";
+  $("view-map").hidden = !map; $("view-overview").hidden = map;
+  $("tab-map").setAttribute("aria-selected", String(map)); $("tab-overview").setAttribute("aria-selected", String(!map));
+  if (history.replaceState) history.replaceState(null, "", map ? "#map" : "#");
+  clearInterval(mapTimer);
+  if (map) { loadGraph(); mapTimer = setInterval(loadGraph, 15000); }
+}
+$("tab-overview").addEventListener("click", () => showView("overview"));
+$("tab-map").addEventListener("click", () => showView("map"));
+$("range").addEventListener("click", (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  for (const x of $("range").querySelectorAll("button")) x.setAttribute("aria-pressed", String(x === b));
+  windowSecs = +b.dataset.w; loadGraph();
+});
+$("as-table").addEventListener("click", (e) => {
+  tableMode = !tableMode; e.target.setAttribute("aria-pressed", String(tableMode));
+  e.target.textContent = tableMode ? "Show as charts" : "Show as table"; renderMap();
+});
+if (location.hash === "#map") showView("map");
 
 setInterval(refreshFast, 2000);
 setInterval(refreshSlow, 5000);

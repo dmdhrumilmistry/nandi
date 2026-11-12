@@ -13,6 +13,27 @@ the system's light or dark setting.
 When `admin.token` is set the page asks for it (Token, top right) and keeps
 it in the browser's local storage.
 
+### Map
+
+The Map tab (or `/#map`) draws the audit log for the last 15 minutes to 24
+hours three ways:
+
+- **Kailash map.** Agents on the inner ring, the MCP servers, models and
+  peers they reached on the middle ring, and tools on the outer ring. Every
+  path runs through the gate in the centre. Line width is call volume, and a
+  coloured outline marks anything that was alerted, redacted, held or denied.
+- **Through the gate.** A flow from each agent to each destination, split by
+  decision, so you can see which agent drives which traffic and where the
+  denials come from.
+- **Decisions over time.** Stacked bars per time bucket.
+
+Hover any mark for its counts, or use **Show as table** for the same data as
+tables. The busiest 40 destinations and 80 tools are drawn; the rest fold
+into "other". The map needs the audit log (`audit.enabled`); the data comes
+from [`GET /v1/graph`](../reference/admin-api.md).
+
+![The map in light mode](../assets/screenshots/map-light.png)
+
 ## Terminal
 
 ```sh

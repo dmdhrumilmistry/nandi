@@ -160,6 +160,7 @@ fn build(app: Arc<App>, shutdown: watch::Receiver<bool>) -> Router {
         .route("/v1/policy/reload", post(policy_reload))
         .route("/v1/audit/verify", get(audit_verify))
         .route("/v1/hook/{format}", post(hook_endpoint))
+        .route("/v1/graph", get(graph))
         .layer(middleware::from_fn_with_state(state.clone(), guard))
         .with_state(state)
 }
@@ -384,6 +385,24 @@ async fn events(State(st): State<AdminState>, QueryParams(p): QueryParams<Events
         .map_err(ApiError::internal)?
         .map_err(ApiError::internal)?;
     ok_json(records)
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+struct GraphParams {
+    window_secs: Option<u64>,
+    buckets: Option<usize>,
+}
+
+/// Agents, destinations, tools and a decision timeline for the dashboard map.
+async fn graph(State(st): State<AdminState>, QueryParams(p): QueryParams<GraphParams>) -> ApiResult {
+    let Some(log) = st.app.audit.clone() else { return Err(ApiError::not_found("audit log disabled")) };
+    let (window, buckets) = (p.window_secs.unwrap_or(3600), p.buckets.unwrap_or(30));
+    let g = tokio::task::spawn_blocking(move || crate::graph::build(&log, nandi_core::util::now_ms(), window, buckets))
+        .await
+        .map_err(ApiError::internal)?
+        .map_err(ApiError::internal)?;
+    ok_json(g)
 }
 
 #[derive(Debug, Default, Deserialize)]
