@@ -23,6 +23,15 @@ email to the address in that invoice is waiting for approval, as is a 48,000
 payment. The MCP server rewrote a tool description after it was approved, and
 one agent has been disabled.</sub>
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/map-dark.png">
+  <img alt="The nandi map: agents, the servers and models they reached, and their tools, all connected through the gate, next to a flow of calls split by decision" src="docs/assets/screenshots/map-light.png">
+</picture>
+
+<sub>The map view: every agent, what it reached and which tools it used, with
+each path running through the gate. Outlines mark what was flagged; the flow
+on the right shows where the alerts and denials came from.</sub>
+
 ## Why
 
 Agents act on text they did not write. A web page, an email or a tool
