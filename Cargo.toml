@@ -22,6 +22,7 @@ nandi-gateway = { path = "crates/nandi-gateway", version = "0.1.0" }
 nandi-sense = { path = "crates/nandi-sense", version = "0.1.0" }
 nandi-ml = { path = "crates/nandi-ml", version = "0.1.0" }
 nandi-eval = { path = "crates/nandi-eval", version = "0.1.0" }
+nandi-discover = { path = "crates/nandi-discover", version = "0.1.0" }
 
 anyhow = "1"
 thiserror = "2"

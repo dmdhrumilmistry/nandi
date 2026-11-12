@@ -25,6 +25,8 @@ page); without a token they only answer loopback clients.
 | POST | `/v1/policy/reload` | reload policy files |
 | GET | `/v1/audit/verify` | verify the audit chain |
 | POST | `/v1/hook/{format}` | evaluate a hook payload |
+| POST | `/v1/inventory` | store a host's AI footprint (`nandi discover --report`), JSON body up to 2 MiB |
+| GET | `/v1/inventory` | latest inventory of every reporting host, newest scan first |
 
 ## Examples
 
@@ -44,9 +46,17 @@ curl -N http://127.0.0.1:8788/v1/events/stream?min_verdict=alert
 
 # Who talked to what in the last 15 minutes.
 curl -s 'http://127.0.0.1:8788/v1/graph?window_secs=900' | jq '.edges[:5]'
+
+# Which machines run MCP servers that bypass nandi?
+curl -s http://127.0.0.1:8788/v1/inventory \
+  | jq '.[] | {host, through_nandi: .coverage.servers_via_nandi, total: .coverage.servers_total}'
 ```
 
 With `admin.token` set, add `-H "Authorization: Bearer $NANDI_ADMIN_TOKEN"`.
+
+Inventories are stored in nandi's state database under `inventory/<host>`;
+a new report from a host replaces its previous one. See
+[AI footprint and coverage](../guides/discovery.md).
 
 ## Security
 
