@@ -23,15 +23,79 @@
 <main id="main">
 <div class="wrap">
   <section class="hero">
-    <p class="eyebrow">Open source, Apache-2.0. Written in Rust.</p>
-    <h1>Know what your agents do.<br>Decide what they may do.</h1>
-    <p class="lead">nandi sits between AI agents and the LLM APIs, MCP servers and other agents
-    they talk to. It records every call, checks it against your policy before it runs, and holds
-    the risky ones for a person to approve. One static binary, about 20&nbsp;MB of memory.</p>
-    <div class="cta">
-      <a class="button solid" href="{{root}}docs/getting-started.html">Get started</a>
-      <a class="button" href="{{root}}docs/how-it-works.html">How it works</a>
-      <div class="install"><span>cargo install --locked --git https://github.com/dmdhrumilmistry/nandi nandi</span><button class="copy" type="button" data-copy="cargo install --locked --git https://github.com/dmdhrumilmistry/nandi nandi">Copy</button></div>
+    <div class="hero-grid">
+      <div class="hero-text">
+      <p class="eyebrow">Open source, Apache-2.0. Written in Rust.</p>
+      <h1>Know what your agents do.<br>Decide what they may do.</h1>
+      <p class="lead">nandi sits between AI agents and the LLM APIs, MCP servers and other agents
+      they talk to. It records every call, checks it against your policy before it runs, and holds
+      the risky ones for a person to approve. One static binary, about 20&nbsp;MB of memory.</p>
+      <div class="cta">
+        <a class="button solid" href="{{root}}docs/getting-started.html">Get started</a>
+        <a class="button" href="{{root}}docs/how-it-works.html">How it works</a>
+        <div class="install"><span>cargo install --locked --git https://github.com/dmdhrumilmistry/nandi nandi</span><button class="copy" type="button" data-copy="cargo install --locked --git https://github.com/dmdhrumilmistry/nandi nandi">Copy</button></div>
+      </div>
+      </div>
+      <div class="hero-visual">
+        <svg class="hero-art" viewBox="96 44 556 330" role="img" aria-labelledby="hero-art-title">
+          <title id="hero-art-title">Agents travelling a path through a stone gateway towards Mount Kailash. One of them is stopped at the gate.</title>
+          <defs>
+            <filter id="ink" x="-5%" y="-5%" width="110%" height="110%">
+              <feTurbulence type="fractalNoise" baseFrequency="0.018" numOctaves="2" seed="7" result="n"/>
+              <feDisplacementMap in="SourceGraphic" in2="n" scale="1.3" xChannelSelector="R" yChannelSelector="G"/>
+            </filter>
+          </defs>
+        
+          <!-- sun -->
+          <circle class="art-sun" cx="470" cy="112" r="62"/>
+          <g class="art-line" filter="url(#ink)">
+            <!-- far range -->
+            <path class="art-far" d="M248 300 L292 236 L318 258 L352 214 L388 252 L404 238 L438 300 Z"/>
+            <!-- Kailash: four-sided peak with horizontal rock bands and the snow seam -->
+            <path class="art-peak" d="M356 300 L414 196 L448 124 L462 116 L478 126 L512 196 L572 300 Z"/>
+            <path class="art-snow" d="M448 124 L462 116 L478 126 L492 154 L478 150 L470 160 L462 148 L452 158 L440 150 Z"/>
+            <path d="M462 118 L462 214" class="art-seam"/>
+            <path d="M430 166 Q462 160 494 166" class="art-band"/>
+            <path d="M418 192 Q462 184 506 192" class="art-band"/>
+            <path d="M404 220 Q462 211 520 220" class="art-band"/>
+            <path d="M392 246 Q462 236 534 246" class="art-band"/>
+            <!-- ground -->
+            <path d="M10 336 C150 326 300 342 446 330 S600 326 632 332" class="art-ground"/>
+            <path d="M58 340 l4 -9 M64 340 l1 -11 M70 340 l-2 -8" class="art-grass"/>
+            <path d="M560 336 l3 -9 M566 336 l1 -11 M572 336 l-3 -8" class="art-grass"/>
+            <!-- the path agents take -->
+            <path class="art-trail" d="M-10 360 C80 352 150 330 230 322 S420 310 520 304 S600 300 650 300"/>
+            <!-- torana: pillars with capitals -->
+            <rect class="art-stone" x="158" y="186" width="18" height="146" rx="2"/>
+            <rect class="art-stone" x="282" y="186" width="18" height="146" rx="2"/>
+            <rect class="art-stone" x="151" y="176" width="32" height="12" rx="2"/>
+            <rect class="art-stone" x="275" y="176" width="32" height="12" rx="2"/>
+            <!-- three lintels with scrolled ends -->
+            <path class="art-stone" d="M116 112 Q229 98 342 112 L342 126 Q229 112 116 126 Z"/>
+            <path class="art-stone" d="M124 140 Q229 128 334 140 L334 152 Q229 140 124 152 Z"/>
+            <path class="art-stone" d="M132 166 Q229 156 326 166 L326 176 Q229 166 132 176 Z"/>
+            <path class="art-scroll" d="M116 119 m-9 0 a9 9 0 1 0 18 0 a5 5 0 1 0 -10 0"/>
+            <path class="art-scroll" d="M342 119 m-9 0 a9 9 0 1 0 18 0 a5 5 0 1 0 -10 0"/>
+            <path class="art-scroll" d="M124 146 m-7 0 a7 7 0 1 0 14 0 a4 4 0 1 0 -8 0"/>
+            <path class="art-scroll" d="M334 146 m-7 0 a7 7 0 1 0 14 0 a4 4 0 1 0 -8 0"/>
+            <!-- struts between lintels -->
+            <path d="M200 126 V140 M229 124 V138 M258 126 V140 M200 152 V166 M258 152 V166" class="art-strut"/>
+          </g>
+        
+          <!-- agents on the path -->
+          <g class="art-tokens" aria-hidden="true">
+            <circle class="tok" r="7"/>
+            <circle class="tok" r="7"/>
+            <circle class="tok hollow" r="7"/>
+            <circle class="tok" r="7"/>
+            <g class="held">
+              <circle class="tok stopped" r="9"/>
+              <path class="pause" d="M-2.5 -4 v8 M2.5 -4 v8"/>
+            </g>
+          </g>
+          <text class="art-label" x="229" y="302" text-anchor="middle">held</text>
+        </svg>
+      </div>
     </div>
     <figure class="shot">
       <picture>

@@ -11,6 +11,7 @@ pub mod admin;
 pub mod app;
 pub mod approvals;
 pub mod client;
+pub mod graph;
 pub mod hook;
 pub mod metrics;
 pub mod otlp;
