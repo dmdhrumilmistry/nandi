@@ -18,6 +18,9 @@ use crate::client::{self, HttpClient};
 use crate::metrics::Metrics;
 use crate::recorder::Recorder;
 
+/// StateStore prefix for Biscuit revocations made through the admin API.
+pub const REVOKED_PREFIX: &str = "revoked/";
+
 /// Final outcome of [`App::decide`].
 #[derive(Debug, Clone)]
 pub struct Verdicted {
@@ -97,12 +100,16 @@ impl App {
         audit: Option<Arc<AuditLog>>,
         classifier: Option<Arc<dyn Classifier>>,
     ) -> anyhow::Result<Arc<App>> {
-        let mut engine = Engine::new(cfg.clone(), policy, store);
+        let mut engine = Engine::new(cfg.clone(), policy, store.clone());
         let blocking_eval = classifier.is_some() && cfg.ml.enabled;
         if let Some(c) = classifier {
             engine = engine.with_classifier(c);
         }
         let auth = Authenticator::new(&cfg.identity, base_dir).context("loading identity config")?;
+        // Token revocations made at runtime survive restarts.
+        for key in store.keys(REVOKED_PREFIX) {
+            auth.revoke(&key[REVOKED_PREFIX.len()..]);
+        }
         let key_paths: Vec<PathBuf> = cfg.a2a.trusted_keys.iter().map(|p| resolve(base_dir, p)).collect();
         let card_keys = TrustedKeys::load(&key_paths).context("loading A2A trusted keys")?;
         let client = client::build();
@@ -153,6 +160,14 @@ impl App {
         };
         self.recorder.record(ev, decision.clone(), applied, eval_ns);
         Verdicted { decision, applied, approval }
+    }
+
+    /// Revoke a Biscuit block identifier now and remember it across
+    /// restarts. Returns false if it was already revoked.
+    pub fn revoke_token(&self, id: &str) -> bool {
+        let id = id.trim().to_ascii_lowercase();
+        self.engine.store().put(&format!("{REVOKED_PREFIX}{id}"), b"1");
+        self.auth.revoke(&id)
     }
 
     /// Reload policy files from disk and swap them in.

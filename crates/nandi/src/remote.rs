@@ -309,6 +309,34 @@ pub async fn kill(r: &Remote, agent: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+pub async fn revoke_token(r: &Remote, id: &str, json_out: bool) -> anyhow::Result<()> {
+    let v = r.post("/v1/tokens/revoke", Some(json!({ "id": id }))).await?;
+    if json_out {
+        println!("{v}");
+    } else if v["newly_revoked"] == json!(true) {
+        println!("revoked {id}: this token and every token attenuated from it are now rejected");
+    } else {
+        println!("{id} was already revoked");
+    }
+    Ok(())
+}
+
+pub async fn revoked_tokens(r: &Remote, json_out: bool) -> anyhow::Result<()> {
+    let v = r.get("/v1/tokens/revoked").await?;
+    if json_out {
+        println!("{v}");
+        return Ok(());
+    }
+    let list = v["revoked"].as_array().cloned().unwrap_or_default();
+    if list.is_empty() {
+        println!("no revoked tokens");
+    }
+    for id in list {
+        println!("{}", id.as_str().unwrap_or_default());
+    }
+    Ok(())
+}
+
 pub async fn revive(r: &Remote, agent: &str) -> anyhow::Result<()> {
     let v = r.post(&format!("/v1/agents/{}/revive", seg(agent)), None).await?;
     if v["was_killed"] == json!(true) {

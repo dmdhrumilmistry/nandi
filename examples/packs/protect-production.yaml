@@ -1,0 +1,54 @@
+# Pack: protect production
+#
+# Lets agents work on development and staging while anything aimed at
+# production needs a person. Adjust the context, profile and host patterns to
+# your naming; the defaults match common conventions (prod, production, live).
+
+rules:
+  - id: prod-kubectl
+    description: kubectl or helm against a production context or namespace
+    match:
+      args:
+        command: { regex: '\b(kubectl|helm|k9s)\b.*(--context[= ]\S*prod|--kube-context[= ]\S*prod|-n[= ]?\S*prod|--namespace[= ]\S*prod)' }
+    action: ask
+    severity: high
+
+  - id: prod-cloud-cli
+    description: Cloud CLI calls with a production profile or project
+    match:
+      args:
+        command: { regex: '\b(aws|gcloud|az)\b.*(--profile[= ]\S*prod|--project[= ]\S*prod|--subscription[= ]\S*prod)' }
+    action: ask
+    severity: high
+
+  - id: prod-terraform-apply
+    description: terraform or tofu apply / destroy
+    match:
+      args:
+        command: { regex: '\b(terraform|tofu|terragrunt)\b.*\b(apply|destroy|import|state\s+rm)\b' }
+    action: ask
+    severity: high
+
+  - id: prod-database-shell
+    description: Database shells pointed at production hosts
+    match:
+      args:
+        command: { regex: '\b(psql|mysql|mongosh|redis-cli|cqlsh)\b.*\b(prod|production|live)\b' }
+    action: ask
+    severity: high
+
+  - id: destructive-sql
+    description: Destructive SQL through a database tool or a shell
+    match:
+      args:
+        query: { regex: '(?i)\b(drop\s+(table|database|schema)|truncate\s+table|delete\s+from\s+\w+\s*;?\s*$)' }
+    action: deny
+    severity: critical
+
+  - id: destructive-sql-shell
+    description: Destructive SQL passed on a command line
+    match:
+      args:
+        command: { regex: '(?i)\b(drop\s+(table|database|schema)|truncate\s+table)\b' }
+    action: deny
+    severity: critical

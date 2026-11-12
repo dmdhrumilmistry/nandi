@@ -249,6 +249,12 @@ pub struct BiscuitConfig {
     /// Header carrying the token (default `x-nandi-biscuit`).
     #[serde(default = "default_biscuit_header")]
     pub header: String,
+    /// Revoked block identifiers (hex, from `nandi token inspect`). A token
+    /// is rejected if any of its blocks is revoked, so revoking a block
+    /// cancels that token and everything attenuated from it. Revocations
+    /// can also be added at runtime with `nandi token revoke`.
+    #[serde(default)]
+    pub revoked: Vec<String>,
 }
 
 fn default_biscuit_header() -> String {

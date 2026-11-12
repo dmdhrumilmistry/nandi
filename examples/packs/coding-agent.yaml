@@ -1,0 +1,47 @@
+# Pack: coding agent baseline
+#
+# Guard rails for Claude Code, Cursor and similar agents working in a
+# developer's checkout: no recursive deletes from the root or home directory,
+# no piping downloads into a shell, no force pushes to main, and no reading
+# credential files through the shell.
+
+rules:
+  - id: no-rm-rf-root-or-home
+    description: Recursive forced delete of the root, home or a parent directory
+    match:
+      args:
+        command: { regex: '\brm\s+(-[a-zA-Z]*[rR][a-zA-Z]*f[a-zA-Z]*|-[a-zA-Z]*f[a-zA-Z]*[rR][a-zA-Z]*)\s+(/|~|\$HOME|\.\.)(\s|/|$)' }
+    action: deny
+    severity: critical
+
+  - id: no-pipe-download-to-shell
+    description: Downloading a script and running it in one step
+    match:
+      args:
+        command: { regex: '\b(curl|wget)\b[^|]*\|\s*(sudo\s+)?(ba|z|da)?sh\b' }
+    action: ask
+    severity: high
+
+  - id: no-force-push-main
+    description: Force pushes to main or master
+    match:
+      args:
+        command: { regex: '\bgit\s+push\b.*(--force\b|-f\b|--force-with-lease\b).*\b(main|master)\b|\bgit\s+push\b.*\b(main|master)\b.*(--force\b|-f\b)' }
+    action: ask
+    severity: high
+
+  - id: no-credential-reads-in-shell
+    description: Reading SSH keys or cloud credentials through the shell
+    match:
+      args:
+        command: { regex: '\b(cat|less|more|head|tail|cp|scp|base64|xxd)\b.*(\.ssh/id_|\.aws/credentials|\.config/gcloud|\.kube/config|\.docker/config\.json|\.netrc|\.git-credentials)' }
+    action: deny
+    severity: critical
+
+  - id: tls-verification-off
+    description: Disabling TLS certificate verification
+    match:
+      args:
+        command: { regex: '(\bcurl\b.*\s(-k|--insecure)\b|\bwget\b.*--no-check-certificate|GIT_SSL_NO_VERIFY|NODE_TLS_REJECT_UNAUTHORIZED=0)' }
+    action: alert
+    severity: medium

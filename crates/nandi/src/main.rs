@@ -4,6 +4,7 @@
 mod discover;
 mod init;
 mod offline;
+mod packs;
 mod remote;
 
 use std::io::IsTerminal;
@@ -243,6 +244,14 @@ enum PolicyCmd {
         #[arg(long)]
         json: bool,
     },
+    /// List the bundled policy packs.
+    Packs,
+    /// Print a bundled policy pack, to save as a rule file:
+    /// `nandi policy pack payments > policies/payments.yaml`.
+    Pack {
+        /// Pack name from `nandi policy packs`.
+        name: String,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -315,10 +324,23 @@ enum TokenCmd {
         #[arg(long)]
         ttl: Option<u64>,
     },
-    /// Print a token's blocks (signatures are not checked).
+    /// Print a token's blocks and their revocation ids (signatures are not checked).
     Inspect {
         #[arg(long)]
         token: String,
+    },
+    /// Revoke a token block by its revocation id (admin API). Revoking a
+    /// block cancels that token and every token attenuated from it.
+    Revoke {
+        /// Revocation id from `nandi token inspect`.
+        id: String,
+        #[command(flatten)]
+        admin: AdminOpts,
+    },
+    /// List revoked token blocks (admin API).
+    Revoked {
+        #[command(flatten)]
+        admin: AdminOpts,
     },
 }
 
@@ -584,11 +606,26 @@ async fn dispatch(cli: Cli) -> anyhow::Result<i32> {
             let (url, token) = remote::resolve_target(&opts, config);
             Ok(hook::client_main(format, &url, token.as_deref(), fail_open).await)
         }
+        Cmd::Policy { cmd: PolicyCmd::Packs } => {
+            for p in packs::PACKS {
+                println!("{:<20} {}", p.name, p.summary());
+            }
+            println!("\nSave one with `nandi policy pack <name> > policies/<name>.yaml` and add it to policy.rules.");
+            Ok(0)
+        }
+        Cmd::Policy { cmd: PolicyCmd::Pack { name } } => match packs::find(&name) {
+            Some(p) => {
+                print!("{}", p.yaml);
+                Ok(0)
+            }
+            None => bail!("no pack named {name}; see `nandi policy packs`"),
+        },
         Cmd::Policy { cmd } => {
             let (cfg, base) = load_config(config)?;
             match cmd {
                 PolicyCmd::Validate => offline::validate(&cfg, &base)?,
                 PolicyCmd::Test { events, json } => offline::test(&cfg, &base, &events, json)?,
+                PolicyCmd::Packs | PolicyCmd::Pack { .. } => unreachable!("handled above"),
             }
             Ok(0)
         }
@@ -636,6 +673,14 @@ async fn dispatch(cli: Cli) -> anyhow::Result<i32> {
             }
             Ok(0)
         }
+        Cmd::Token { cmd: TokenCmd::Revoke { id, admin } } => {
+            remote::revoke_token(&remote_for(&admin, config)?, &id, admin.json).await?;
+            Ok(0)
+        }
+        Cmd::Token { cmd: TokenCmd::Revoked { admin } } => {
+            remote::revoked_tokens(&remote_for(&admin, config)?, admin.json).await?;
+            Ok(0)
+        }
         Cmd::Token { cmd } => {
             use nandi_identity::biscuit;
             match cmd {
@@ -654,6 +699,7 @@ async fn dispatch(cli: Cli) -> anyhow::Result<i32> {
                     println!("{}", biscuit::attenuate(&token, &public_key, &tools, ttl)?)
                 }
                 TokenCmd::Inspect { token } => println!("{}", biscuit::inspect(&token)?),
+                TokenCmd::Revoke { .. } | TokenCmd::Revoked { .. } => unreachable!("handled above"),
             }
             Ok(0)
         }

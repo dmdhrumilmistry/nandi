@@ -97,6 +97,9 @@ pub struct Authenticator {
     api_keys: Vec<ApiKeyEntry>,
     jwt: Option<JwtVerifier>,
     biscuit: Option<(String, PublicKey)>,
+    /// Revoked Biscuit block identifiers (hex): from the configuration and
+    /// added at runtime with [`Authenticator::revoke`].
+    revoked: std::sync::RwLock<std::collections::BTreeSet<String>>,
 }
 
 fn single_header<'a>(
@@ -176,6 +179,9 @@ impl Authenticator {
             api_keys,
             jwt,
             biscuit,
+            revoked: std::sync::RwLock::new(
+                cfg.biscuit.iter().flat_map(|b| b.revoked.iter()).map(|id| id.trim().to_ascii_lowercase()).collect(),
+            ),
         })
     }
 
@@ -197,6 +203,7 @@ impl Authenticator {
             && let Some(tok) = single_header(headers, header, "biscuit")?
         {
             let g = biscuit::verify_at(tok, root, std::time::SystemTime::now())?;
+            self.check_revoked(&g)?;
             if found.is_none() {
                 found = Some(Principal::new(g.agent.clone(), AuthMethod::Biscuit));
             }
@@ -243,9 +250,32 @@ impl Authenticator {
         match (&principal.grant, &self.biscuit) {
             (None, _) => Ok(()),
             (Some(g), Some((_, root))) => {
+                self.check_revoked(g)?;
                 biscuit::authorize_at(&g.token, root, server, tool, std::time::SystemTime::now()).map(|_| ())
             }
             (Some(_), None) => Err(AuthError::invalid("biscuit", "biscuit authentication is not configured")),
+        }
+    }
+
+    /// Revoke a Biscuit block by its hex revocation identifier. Returns
+    /// false if it was already revoked.
+    pub fn revoke(&self, id: &str) -> bool {
+        let id = id.trim().to_ascii_lowercase();
+        self.revoked.write().map(|mut r| r.insert(id)).unwrap_or(false)
+    }
+
+    /// Revoked identifiers, sorted.
+    pub fn revoked(&self) -> Vec<String> {
+        self.revoked.read().map(|r| r.iter().cloned().collect()).unwrap_or_default()
+    }
+
+    fn check_revoked(&self, g: &BiscuitGrant) -> std::result::Result<(), AuthError> {
+        let revoked = self.revoked.read().map_err(|_| AuthError::invalid("biscuit", "revocation list unavailable"))?;
+        match g.revocation_ids.iter().find(|id| revoked.contains(*id)) {
+            Some(id) => {
+                Err(AuthError::invalid("biscuit", format!("token revoked (block {})", &id[..id.len().min(16)])))
+            }
+            None => Ok(()),
         }
     }
 
@@ -484,7 +514,8 @@ mod tests {
     fn mtls_and_biscuit() {
         let (sk, pk) = biscuit::generate_root_keypair();
         let mut c = cfg();
-        c.biscuit = Some(BiscuitConfig { root_public_key: pk.clone(), header: "x-nandi-biscuit".into() });
+        c.biscuit =
+            Some(BiscuitConfig { root_public_key: pk.clone(), header: "x-nandi-biscuit".into(), revoked: vec![] });
         let a = Authenticator::new(&c, Path::new(".")).unwrap();
 
         let p = a.authenticate(&HeaderMap::new(), Some("spiffe://corp/agents/planner")).unwrap();
@@ -521,7 +552,7 @@ mod tests {
         c.jwt = Some(j);
         assert!(Authenticator::new(&c, Path::new(".")).is_err());
         let mut c = cfg();
-        c.biscuit = Some(BiscuitConfig { root_public_key: "zz".into(), header: "x".into() });
+        c.biscuit = Some(BiscuitConfig { root_public_key: "zz".into(), header: "x".into(), revoked: vec![] });
         assert!(Authenticator::new(&c, Path::new(".")).is_err());
     }
 
@@ -531,5 +562,45 @@ mod tests {
         assert_eq!(claim(&c, "act.sub"), Some(&json!("bob")));
         assert_eq!(claim(&c, "https://x/roles"), Some(&json!(["a"])));
         assert_eq!(claim(&c, "act.missing"), None);
+    }
+
+    #[test]
+    fn revoked_biscuits_are_rejected() {
+        let (sk, pk) = biscuit::generate_root_keypair();
+        let parent = biscuit::mint(&sk, "planner", &["github/*".to_string()], 600).unwrap();
+        let child = biscuit::attenuate(&parent, &pk, &["github/get_issue".to_string()], None).unwrap();
+        let child_ids = biscuit::revocation_ids(&child).unwrap();
+        assert_eq!(child_ids.len(), 2);
+        assert_eq!(biscuit::revocation_ids(&parent).unwrap()[0], child_ids[0]);
+
+        let mut c = IdentityConfig {
+            biscuit: Some(BiscuitConfig {
+                root_public_key: pk.clone(),
+                header: "x-nandi-biscuit".into(),
+                revoked: vec![],
+            }),
+            ..Default::default()
+        };
+        let a = Authenticator::new(&c, Path::new(".")).unwrap();
+        assert!(a.authenticate(&headers(&[("x-nandi-biscuit", &child)]), None).is_ok());
+
+        // Revoking the sub-agent's block cancels the child, not the parent.
+        assert!(a.revoke(&child_ids[1].to_ascii_uppercase()));
+        assert!(!a.revoke(&child_ids[1]));
+        assert!(a.authenticate(&headers(&[("x-nandi-biscuit", &child)]), None).is_err());
+        let p = a.authenticate(&headers(&[("x-nandi-biscuit", &parent)]), None).unwrap();
+        assert!(a.authorize_tool(&p, "github", "create_issue").is_ok());
+
+        // Revoking the authority block cancels every token derived from it,
+        // including grants already attached to a principal.
+        a.revoke(&child_ids[0]);
+        assert!(a.authorize_tool(&p, "github", "create_issue").is_err());
+        assert_eq!(a.revoked().len(), 2);
+
+        // Identifiers can also come from the configuration.
+        c.biscuit.as_mut().unwrap().revoked = vec![child_ids[0].clone()];
+        let a = Authenticator::new(&c, Path::new(".")).unwrap();
+        assert!(a.authenticate(&headers(&[("x-nandi-biscuit", &parent)]), None).is_err());
+        assert!(biscuit::inspect(&child).unwrap().contains(&format!("revocation id {}", child_ids[1])));
     }
 }

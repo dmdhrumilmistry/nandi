@@ -1,0 +1,21 @@
+# Pack: payments need a person
+#
+# Any tool that moves money (payments, transfers, refunds, payouts, invoices)
+# is held for approval, whatever it is called. Tools are recognised by their
+# capabilities, which nandi infers from tool names, descriptions and schemas.
+
+rules:
+  - id: payment-needs-approval
+    description: Money movement needs a person
+    match:
+      capability: payment
+    action: ask
+    severity: high
+
+  - id: payment-from-tainted-session
+    description: Payments from a session that read untrusted content are refused
+    match:
+      capability: payment
+      session: { tainted: true }
+    action: deny
+    severity: critical

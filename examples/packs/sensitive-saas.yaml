@@ -1,0 +1,21 @@
+# Pack: keep agents away from sensitive SaaS
+#
+# Blocks fetches and browser automation aimed at systems that hold employee,
+# financial or identity data. Replace the host list with your own.
+
+rules:
+  - id: sensitive-saas-fetch
+    description: Agent access to a sensitive SaaS application
+    match:
+      args:
+        url: { regex: '(?i)^https?://([a-z0-9-]+\.)*(workday\.com|bamboohr\.com|rippling\.com|gusto\.com|adp\.com|netsuite\.com|bill\.com|okta\.com|onelogin\.com|1password\.com|lastpass\.com)(/|$)' }
+    action: deny
+    severity: high
+
+  - id: sensitive-saas-shell
+    description: Shell commands reaching a sensitive SaaS application
+    match:
+      args:
+        command: { regex: '(?i)\b(curl|wget|http)\b.*\b(workday\.com|bamboohr\.com|rippling\.com|gusto\.com|adp\.com|netsuite\.com|bill\.com|okta\.com|onelogin\.com|1password\.com|lastpass\.com)\b' }
+    action: deny
+    severity: high

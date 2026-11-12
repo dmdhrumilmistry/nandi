@@ -86,3 +86,32 @@ The sub-agent sends the token in the `x-nandi-biscuit` header. nandi verifies
 the signature chain and allows a tool only if every block permits it, so an
 attenuated token can never do more than its parent.
 
+### Revoking a token
+
+Biscuit tokens are checked offline, so they stay valid until they expire
+unless nandi is told otherwise. Every block of a token has a revocation id,
+printed by `nandi token inspect`:
+
+```text
+// authority, revocation id 3b1f...c2
+agent("planner");
+right_prefix("github/");
+...
+
+// block 1, revocation id 9e07...41
+check if operation("authenticate") or tool($t), $t == "github/get_issue";
+```
+
+Revoking a block rejects that token and every token attenuated from it, so
+revoking a sub-agent's block leaves the planner's own token working, while
+revoking the authority block cancels the whole family.
+
+```sh
+nandi token revoke 9e07...41     # takes effect immediately, survives restarts
+nandi token revoked              # list revoked ids
+```
+
+Revocations can also be listed in the configuration under
+`identity.biscuit.revoked`, which is the way to keep them when the data
+directory is wiped.
+
