@@ -63,7 +63,13 @@ $target = switch ($arch) {
 
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 if ($Version -eq "latest") {
-    $Version = (Invoke-RestMethod "https://api.github.com/repos/$Repo/releases/latest").tag_name
+    # Follow the releases/latest redirect rather than the GitHub API, which is
+    # rate limited per IP (a problem behind a shared office NAT).
+    $resp = Invoke-WebRequest "https://github.com/$Repo/releases/latest" -Method Head -UseBasicParsing
+    $final = if ($resp.BaseResponse.ResponseUri) { $resp.BaseResponse.ResponseUri.AbsoluteUri }  # Windows PowerShell 5.1
+             else { $resp.BaseResponse.RequestMessage.RequestUri.AbsoluteUri }                   # PowerShell 7
+    $Version = ($final.TrimEnd("/") -split "/tag/")[-1]
+    if ($Version -notlike "v*") { throw "Could not find the latest release" }
 }
 $name = "nandi-$Version-$target"
 $url = "https://github.com/$Repo/releases/download/$Version/$name.zip"

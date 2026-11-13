@@ -41,8 +41,11 @@ case "$(uname -m)" in
 esac
 
 if [ "$VERSION" = "latest" ]; then
-  VERSION=$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -1)
-  [ -n "$VERSION" ] || { log "could not find the latest release"; exit 1; }
+  # Follow the releases/latest redirect rather than the GitHub API, which is
+  # rate limited per IP (a problem behind a shared office NAT).
+  LATEST=$(curl -fsSLI -o /dev/null -w '%{url_effective}' "https://github.com/$REPO/releases/latest")
+  VERSION="${LATEST##*/tag/}"
+  case "$VERSION" in v*) ;; *) log "could not find the latest release"; exit 1 ;; esac
 fi
 NAME="nandi-$VERSION-$TARGET"
 URL="https://github.com/$REPO/releases/download/$VERSION/$NAME.tar.gz"
