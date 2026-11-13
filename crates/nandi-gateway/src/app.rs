@@ -63,6 +63,8 @@ pub struct App {
     pub metrics: Arc<Metrics>,
     pub client: HttpClient,
     pub card_keys: TrustedKeys,
+    /// Users of the admin API and dashboard.
+    pub users: crate::users::Users,
     pub started: Instant,
     /// An ML classifier runs inside evaluation; it can take hundreds of
     /// milliseconds, so evaluation is marked as blocking.
@@ -92,6 +94,14 @@ impl App {
         Self::assemble(cfg, Path::new("."), policy, store, None, None)
     }
 
+    /// [`App::ephemeral`] with an in-memory audit log.
+    #[cfg(test)]
+    pub fn ephemeral_audited(cfg: Config, policy: PolicySet) -> anyhow::Result<Arc<App>> {
+        let store: Arc<dyn StateStore> = Arc::new(nandi_core::MemoryStore::new());
+        let audit = Arc::new(AuditLog::open_in_memory()?);
+        Self::assemble(cfg, Path::new("."), policy, store, Some(audit), None)
+    }
+
     fn assemble(
         cfg: Config,
         base_dir: &Path,
@@ -117,6 +127,7 @@ impl App {
         let recorder =
             Recorder::start(audit.clone(), cfg.audit.clone(), cfg.telemetry.clone(), client.clone(), metrics.clone());
         let approvals = ApprovalBroker::new(cfg.approvals.clone(), client.clone(), metrics.clone());
+        let users = crate::users::Users::new(&cfg.admin, store.clone());
         let app = Arc::new(App {
             base_dir: base_dir.to_path_buf(),
             engine: Arc::new(engine),
@@ -127,6 +138,7 @@ impl App {
             metrics,
             client,
             card_keys,
+            users,
             started: Instant::now(),
             blocking_eval,
             cfg,
@@ -168,6 +180,27 @@ impl App {
         let id = id.trim().to_ascii_lowercase();
         self.engine.store().put(&format!("{REVOKED_PREFIX}{id}"), b"1");
         self.auth.revoke(&id)
+    }
+
+    /// Record an administrative action in the audit log (and the live
+    /// stream), attributed to `who`.
+    pub fn record_admin(
+        &self,
+        who: &crate::users::Principal,
+        action: &str,
+        target: &str,
+        outcome: &str,
+        details: serde_json::Value,
+    ) {
+        let kind = nandi_core::EventKind::Admin(nandi_core::AdminAction {
+            actor: who.name.clone(),
+            action: action.into(),
+            target: target.into(),
+            outcome: outcome.into(),
+            details,
+        });
+        let ev = Event::new(nandi_core::Source::Admin, who.name.clone(), "admin", kind);
+        self.recorder.record(ev, nandi_core::Decision::allow(), Verdict::Allow, 0);
     }
 
     /// Reload policy files from disk and swap them in.

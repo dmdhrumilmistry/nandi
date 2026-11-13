@@ -252,6 +252,54 @@ pub fn export(log: &AuditLog, out: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// `nandi audit trail`: administrative actions, newest first.
+pub fn trail(
+    log: &AuditLog,
+    actor: Option<&str>,
+    action: Option<&str>,
+    limit: usize,
+    json_out: bool,
+) -> anyhow::Result<()> {
+    let records =
+        log.query(&Query { kind: Some("admin".into()), ..Query::default() }).map_err(|e| anyhow::anyhow!("{e}"))?;
+    let stdout = std::io::stdout();
+    let mut out = stdout.lock();
+    let mut shown = 0;
+    for rec in records {
+        let nandi_core::EventKind::Admin(a) = &rec.event.kind else { continue };
+        if actor.is_some_and(|x| a.actor != x) || action.is_some_and(|x| !a.action.starts_with(x)) {
+            continue;
+        }
+        if limit > 0 && shown >= limit {
+            break;
+        }
+        shown += 1;
+        if json_out {
+            writeln!(
+                out,
+                "{}",
+                json!({ "seq": rec.seq, "ts_ms": rec.event.ts_ms, "actor": a.actor, "action": a.action,
+                "target": a.target, "outcome": a.outcome, "details": a.details })
+            )?;
+        } else {
+            writeln!(
+                out,
+                "#{:<6} {}  {:<16} {:<22} {:<24} {}",
+                rec.seq,
+                crate::remote::clock_utc(rec.event.ts_ms),
+                a.actor,
+                a.action,
+                a.target,
+                a.outcome
+            )?;
+        }
+    }
+    if shown == 0 && !json_out {
+        eprintln!("no administrative actions recorded");
+    }
+    Ok(())
+}
+
 pub fn head(log: &AuditLog) -> anyhow::Result<()> {
     let (seq, hash) = log.head();
     let records = log.len().map_err(|e| anyhow::anyhow!("{e}"))?;

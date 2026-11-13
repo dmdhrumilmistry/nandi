@@ -114,6 +114,8 @@ fn destination(kind: &EventKind) -> (&'static str, String, Option<String>) {
         EventKind::AgentCard(c) => ("peer", c.peer.clone(), None),
         EventKind::PlanDeclared(_) => ("plan", "plan".into(), None),
         EventKind::Process(_) | EventKind::File(_) | EventKind::Network(_) => ("host", "host".into(), None),
+        // Skipped by `build`; admin actions are not agent traffic.
+        EventKind::Admin(_) => ("admin", "admin".into(), None),
     }
 }
 
@@ -136,7 +138,7 @@ pub fn build(log: &AuditLog, now_ms: u64, window_secs: u64, buckets: usize) -> n
 
     for r in &records {
         let (ev, v) = (&r.event, r.decision.verdict);
-        if ev.ts_ms < start {
+        if ev.ts_ms < start || matches!(ev.kind, EventKind::Admin(_)) {
             continue;
         }
         let i = (((ev.ts_ms - start) / bucket_ms) as usize).min(buckets - 1);

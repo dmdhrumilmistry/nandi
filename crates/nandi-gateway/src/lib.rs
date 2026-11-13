@@ -19,5 +19,6 @@ pub mod otlp;
 pub mod proxy;
 pub mod recorder;
 pub mod stdio;
+pub mod users;
 
 pub use app::{App, Verdicted};

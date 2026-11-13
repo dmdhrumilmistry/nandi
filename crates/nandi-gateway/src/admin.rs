@@ -18,7 +18,7 @@ use std::sync::{Arc, OnceLock};
 
 use axum::Router;
 use axum::body::Bytes;
-use axum::extract::{ConnectInfo, DefaultBodyLimit, Path, Query as QueryParams, Request, State};
+use axum::extract::{ConnectInfo, DefaultBodyLimit, Extension, Path, Query as QueryParams, Request, State};
 use axum::http::{HeaderMap, HeaderValue, Method, StatusCode, header};
 use axum::middleware::{self, Next};
 use axum::response::sse::{Event as SseEvent, KeepAlive, Sse};
@@ -38,6 +38,7 @@ use nandi_discover::Inventory;
 use crate::App;
 use crate::hook::{self, HookFormat};
 use crate::recorder::LiveEvent;
+use crate::users::{Origin, Permission, Principal};
 
 /// Largest inventory accepted by `POST /v1/inventory`.
 const MAX_INVENTORY_BYTES: usize = 2 << 20;
@@ -182,6 +183,11 @@ fn build(app: Arc<App>, shutdown: watch::Receiver<bool>) -> Router {
             "/v1/inventory",
             get(inventory_list).post(inventory_report).layer(DefaultBodyLimit::max(MAX_INVENTORY_BYTES)),
         )
+        .route("/v1/me", get(me))
+        .route("/v1/users", get(users_list).post(user_create))
+        .route("/v1/users/{name}", axum::routing::patch(user_update).delete(user_delete))
+        .route("/v1/users/{name}/rotate", post(user_rotate))
+        .route("/v1/audit/admin", get(admin_audit))
         .route("/v1/tokens/revoked", get(tokens_revoked))
         .route("/v1/tokens/revoke", post(token_revoke))
         .layer(middleware::from_fn_with_state(state.clone(), guard))
@@ -191,42 +197,165 @@ fn build(app: Arc<App>, shutdown: watch::Receiver<bool>) -> Router {
 // ----- access control --------------------------------------------------------
 
 async fn guard(State(st): State<AdminState>, req: Request, next: Next) -> Response {
-    let path = req.uri().path();
-    if path == "/healthz" {
+    let path = req.uri().path().to_string();
+    if path == "/healthz" || path == "/" {
         return next.run(req).await;
     }
-    // The report token admits inventory reports and nothing else.
-    if let Some(report) = &st.report_hash
-        && path == "/v1/inventory"
-        && req.method() == Method::POST
-        && bearer_matches(req.headers(), report)
+    let principal = match authenticate(&st, &req) {
+        Ok(p) => p,
+        Err(resp) => return *resp,
+    };
+    let method = req.method().clone();
+    if let Some(need) = required(&method, &path)
+        && !principal.can(need)
     {
+        if !matches!(principal.origin, Origin::ReportToken) {
+            st.app.record_admin(
+                &principal,
+                "access.denied",
+                &format!("{method} {path}"),
+                "denied",
+                json!({ "needs": need }),
+            );
+        }
+        return ApiError(
+            StatusCode::FORBIDDEN,
+            format!("{} may not do this (needs {})", principal.name, need.as_str()),
+        )
+        .into_response();
+    }
+    // Every change made through the admin API is recorded, attributed to
+    // the principal, with its body (agent traffic is recorded as events).
+    let audited =
+        method != Method::GET && method != Method::HEAD && !path.starts_with("/v1/hook/") && path != "/v1/inventory";
+    if !audited {
+        let mut req = req;
+        req.extensions_mut().insert(principal);
         return next.run(req).await;
     }
-    match &st.token_hash {
-        Some(expected) => {
-            if path == "/" || bearer_matches(req.headers(), expected) {
-                next.run(req).await
-            } else {
-                let mut resp =
-                    ApiError(StatusCode::UNAUTHORIZED, "missing or invalid bearer token".into()).into_response();
-                resp.headers_mut().insert(header::WWW_AUTHENTICATE, HeaderValue::from_static("Bearer"));
-                resp
-            }
+    let (parts, body) = req.into_parts();
+    let bytes = match axum::body::to_bytes(body, MAX_AUDITED_BODY).await {
+        Ok(b) => b,
+        Err(_) => return ApiError(StatusCode::PAYLOAD_TOO_LARGE, "request body too large".into()).into_response(),
+    };
+    let details = serde_json::from_slice::<Value>(&bytes).map(redact_secrets).unwrap_or(Value::Null);
+    let mut req = Request::from_parts(parts, axum::body::Body::from(bytes));
+    req.extensions_mut().insert(principal.clone());
+    let resp = next.run(req).await;
+    let (action, mut target) = describe(&method, &path);
+    if target.is_empty() {
+        // e.g. user.create, pin approvals: the body names what was acted on.
+        target =
+            ["name", "id"].iter().find_map(|k| details.get(*k).and_then(Value::as_str)).unwrap_or_default().to_string();
+    }
+    let outcome = if resp.status().is_success() { "ok" } else { "failed" };
+    let details = if resp.status().is_success() {
+        details
+    } else {
+        json!({ "request": details, "status": resp.status().as_u16() })
+    };
+    st.app.record_admin(&principal, &action, &target, outcome, details);
+    resp
+}
+
+/// Largest admin request body that is buffered for the audit record.
+const MAX_AUDITED_BODY: usize = 4 << 20;
+
+/// Who is calling: the admin token, a user, the report token, or local
+/// loopback access when no admin token is configured.
+fn authenticate(st: &AdminState, req: &Request) -> Result<Principal, Box<Response>> {
+    if let Some(hash) = bearer_hash(req.headers()) {
+        if st.token_hash.as_deref().is_some_and(|e| constant_time_eq(hash.as_bytes(), e.as_bytes())) {
+            return Ok(Principal::admin());
         }
-        None => {
-            let peer = req.extensions().get::<ConnectInfo<SocketAddr>>().map(|c| c.0.ip());
-            if !peer.is_some_and(|ip| is_loopback(&ip)) {
-                return forbidden("admin API without a token accepts loopback connections only");
-            }
-            if !host_is_loopback(req.headers()) {
-                return forbidden("Host header must name a loopback address");
-            }
-            if req.method() != Method::GET && req.method() != Method::HEAD && !same_origin(req.headers()) {
-                return forbidden("cross-origin request refused");
-            }
-            next.run(req).await
+        if let Some(p) = st.app.users.authenticate(&hash) {
+            return Ok(p);
         }
+        if st.report_hash.as_deref().is_some_and(|e| constant_time_eq(hash.as_bytes(), e.as_bytes())) {
+            return Ok(Principal::reporter());
+        }
+    }
+    if st.token_hash.is_some() {
+        let mut resp = ApiError(StatusCode::UNAUTHORIZED, "missing or invalid bearer token".into()).into_response();
+        resp.headers_mut().insert(header::WWW_AUTHENTICATE, HeaderValue::from_static("Bearer"));
+        return Err(Box::new(resp));
+    }
+    let peer = req.extensions().get::<ConnectInfo<SocketAddr>>().map(|c| c.0.ip());
+    if !peer.is_some_and(|ip| is_loopback(&ip)) {
+        return Err(Box::new(forbidden("admin API without a token accepts loopback connections only")));
+    }
+    if !host_is_loopback(req.headers()) {
+        return Err(Box::new(forbidden("Host header must name a loopback address")));
+    }
+    if req.method() != Method::GET && req.method() != Method::HEAD && !same_origin(req.headers()) {
+        return Err(Box::new(forbidden("cross-origin request refused")));
+    }
+    Ok(Principal::local())
+}
+
+/// The permission a route needs; `None` for routes every principal may use.
+/// Anything not listed needs `manage_users` (admin), so a new route is never
+/// open by accident.
+fn required(method: &Method, path: &str) -> Option<Permission> {
+    use Permission::*;
+    let read = method == Method::GET || method == Method::HEAD;
+    Some(match path {
+        "/v1/me" => return None,
+        p if p.starts_with("/v1/users") => ManageUsers,
+        p if p.starts_with("/v1/hook/") && method == Method::POST => Hook,
+        "/v1/inventory" if method == Method::POST => Report,
+        "/v1/policy/reload" => PolicyApprove,
+        _ if read => Read,
+        p if p.starts_with("/v1/approvals/")
+            || p.starts_with("/v1/agents/")
+            || p.starts_with("/v1/pins/")
+            || p.starts_with("/v1/behavior/")
+            || p == "/v1/servers/accept-binary"
+            || p == "/v1/tokens/revoke" =>
+        {
+            Operate
+        }
+        _ => ManageUsers,
+    })
+}
+
+/// A stable action name and its target for the audit record.
+fn describe(method: &Method, path: &str) -> (String, String) {
+    let seg: Vec<&str> = path.trim_start_matches("/v1/").split('/').collect();
+    let m = method.as_str().to_ascii_lowercase();
+    match seg.as_slice() {
+        ["approvals", id, verb] => (format!("approval.{verb}"), id.to_string()),
+        ["agents", agent, verb] => (format!("agent.{verb}"), agent.to_string()),
+        ["pins", kind, verb] => (format!("pin.{}.{verb}", kind.trim_end_matches('s')), String::new()),
+        ["behavior", agent] => ("behavior.reset".into(), agent.to_string()),
+        ["servers", "accept-binary"] => ("server.accept_binary".into(), String::new()),
+        ["tokens", "revoke"] => ("token.revoke".into(), String::new()),
+        ["policy", "reload"] => ("policy.reload".into(), String::new()),
+        ["users"] => ("user.create".into(), String::new()),
+        ["users", name] if m == "patch" => ("user.update".into(), name.to_string()),
+        ["users", name] if m == "delete" => ("user.delete".into(), name.to_string()),
+        ["users", name, verb] => (format!("user.{verb}"), name.to_string()),
+        _ => (format!("{m} {path}"), String::new()),
+    }
+}
+
+/// Drop values whose key looks secret before a body is recorded.
+fn redact_secrets(v: Value) -> Value {
+    match v {
+        Value::Object(m) => Value::Object(
+            m.into_iter()
+                .map(|(k, v)| {
+                    let lk = k.to_ascii_lowercase();
+                    if ["token", "secret", "password", "key"].iter().any(|s| lk.contains(s)) {
+                        (k, json!("[redacted]"))
+                    } else {
+                        (k, redact_secrets(v))
+                    }
+                })
+                .collect(),
+        ),
+        Value::Array(a) => Value::Array(a.into_iter().map(redact_secrets).collect()),
+        v => v,
     }
 }
 
@@ -264,10 +393,11 @@ fn same_origin(headers: &HeaderMap) -> bool {
     !host.is_empty() && origin_authority.eq_ignore_ascii_case(host)
 }
 
-fn bearer_matches(headers: &HeaderMap, expected_hash: &str) -> bool {
-    let Some(value) = headers.get(header::AUTHORIZATION).and_then(|h| h.to_str().ok()) else { return false };
-    let Some(token) = value.strip_prefix("Bearer ").or_else(|| value.strip_prefix("bearer ")) else { return false };
-    constant_time_eq(sha256_hex(token.trim()).as_bytes(), expected_hash.as_bytes())
+/// SHA-256 of the bearer token, if the request has one.
+fn bearer_hash(headers: &HeaderMap) -> Option<String> {
+    let value = headers.get(header::AUTHORIZATION)?.to_str().ok()?;
+    let token = value.strip_prefix("Bearer ").or_else(|| value.strip_prefix("bearer "))?.trim();
+    (!token.is_empty()).then(|| sha256_hex(token))
 }
 
 /// Compare without early exit. Inputs are fixed-length digests.
@@ -501,13 +631,18 @@ struct ResolveBody {
     by: Option<String>,
 }
 
-fn resolve_approval(st: &AdminState, id: &str, approve: bool, body: &Bytes) -> ApiResult {
-    let by = if body.iter().all(u8::is_ascii_whitespace) {
+fn resolve_approval(st: &AdminState, who: &Principal, id: &str, approve: bool, body: &Bytes) -> ApiResult {
+    let note = if body.iter().all(u8::is_ascii_whitespace) {
         None
     } else {
         serde_json::from_slice::<ResolveBody>(body).map_err(|e| ApiError::bad_request(format!("invalid body: {e}")))?.by
     };
-    let by = by.filter(|b| !b.is_empty()).unwrap_or_else(|| "admin".into());
+    // Named users are recorded as themselves. The shared admin token and
+    // local access can still say who they are with {"by": ...}.
+    let by = match (&who.origin, note.filter(|b| !b.is_empty())) {
+        (Origin::AdminToken | Origin::Local, Some(n)) => format!("{} ({n})", who.name),
+        _ => who.name.clone(),
+    };
     if !st.app.approvals.resolve(id, approve, Some(by.clone())) {
         return Err(ApiError::not_found(format!("no pending approval {id}")));
     }
@@ -515,12 +650,119 @@ fn resolve_approval(st: &AdminState, id: &str, approve: bool, body: &Bytes) -> A
     ok_json(json!({ "ok": true, "id": id, "approved": approve, "by": by }))
 }
 
-async fn approve(State(st): State<AdminState>, Path(id): Path<String>, body: Bytes) -> ApiResult {
-    resolve_approval(&st, &id, true, &body)
+async fn approve(
+    State(st): State<AdminState>,
+    Extension(who): Extension<Principal>,
+    Path(id): Path<String>,
+    body: Bytes,
+) -> ApiResult {
+    resolve_approval(&st, &who, &id, true, &body)
 }
 
-async fn deny(State(st): State<AdminState>, Path(id): Path<String>, body: Bytes) -> ApiResult {
-    resolve_approval(&st, &id, false, &body)
+async fn deny(
+    State(st): State<AdminState>,
+    Extension(who): Extension<Principal>,
+    Path(id): Path<String>,
+    body: Bytes,
+) -> ApiResult {
+    resolve_approval(&st, &who, &id, false, &body)
+}
+
+// ----- users and the admin audit trail ---------------------------------------------
+
+async fn me(State(st): State<AdminState>, Extension(who): Extension<Principal>) -> ApiResult {
+    ok_json(json!({
+        "name": who.name,
+        "roles": who.roles,
+        "origin": who.origin,
+        "permissions": who.permissions(),
+        "users": st.app.users.list().len(),
+    }))
+}
+
+async fn users_list(State(st): State<AdminState>) -> ApiResult {
+    ok_json(st.app.users.list())
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NewUser {
+    name: String,
+    roles: Vec<nandi_core::config::Role>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct UserPatch {
+    roles: Option<Vec<nandi_core::config::Role>>,
+    disabled: Option<bool>,
+}
+
+fn user_error(e: crate::users::UserError) -> ApiError {
+    use crate::users::UserError::*;
+    let code = match e {
+        Invalid(_) => StatusCode::BAD_REQUEST,
+        NotFound => StatusCode::NOT_FOUND,
+        Exists | ReadOnly => StatusCode::CONFLICT,
+    };
+    ApiError(code, e.to_string())
+}
+
+async fn user_create(State(st): State<AdminState>, Extension(who): Extension<Principal>, body: Bytes) -> ApiResult {
+    let b: NewUser = serde_json::from_slice(&body)
+        .map_err(|e| ApiError::bad_request(format!("expected {{\"name\": ..., \"roles\": [...]}}: {e}")))?;
+    let (user, token) = st.app.users.create(&b.name, b.roles, &who.name).map_err(user_error)?;
+    ok_json(json!({ "user": user, "token": token, "note": "The token is shown only now." }))
+}
+
+async fn user_update(State(st): State<AdminState>, Path(name): Path<String>, body: Bytes) -> ApiResult {
+    let b: UserPatch =
+        serde_json::from_slice(&body).map_err(|e| ApiError::bad_request(format!("invalid body: {e}")))?;
+    ok_json(st.app.users.update(&name, b.roles, b.disabled).map_err(user_error)?)
+}
+
+async fn user_rotate(State(st): State<AdminState>, Path(name): Path<String>) -> ApiResult {
+    let token = st.app.users.rotate(&name).map_err(user_error)?;
+    ok_json(json!({ "name": name, "token": token, "note": "The token is shown only now." }))
+}
+
+async fn user_delete(State(st): State<AdminState>, Path(name): Path<String>) -> ApiResult {
+    st.app.users.delete(&name).map_err(user_error)?;
+    ok_json(json!({ "ok": true, "name": name }))
+}
+
+#[derive(Deserialize)]
+struct AdminAuditParams {
+    actor: Option<String>,
+    action: Option<String>,
+    limit: Option<usize>,
+}
+
+/// Administrative actions from the audit log, newest first.
+async fn admin_audit(State(st): State<AdminState>, QueryParams(p): QueryParams<AdminAuditParams>) -> ApiResult {
+    let Some(log) = st.app.audit.clone() else { return Err(ApiError::not_found("audit log disabled")) };
+    let limit = p.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT);
+    let q = Query { kind: Some("admin".into()), ..Query::default() };
+    let records = tokio::task::spawn_blocking(move || log.query(&q))
+        .await
+        .map_err(ApiError::internal)?
+        .map_err(ApiError::internal)?;
+    // The log answers newest first.
+    let rows: Vec<Value> = records
+        .into_iter()
+        .filter_map(|r| match r.event.kind {
+            nandi_core::EventKind::Admin(a) => Some((r.seq, r.event.ts_ms, a)),
+            _ => None,
+        })
+        .filter(|(_, _, a)| p.actor.as_deref().is_none_or(|x| a.actor == x))
+        .filter(|(_, _, a)| p.action.as_deref().is_none_or(|x| a.action.starts_with(x)))
+        .take(limit)
+        .map(|(seq, ts, a)| {
+            json!({ "seq": seq, "ts_ms": ts, "actor": a.actor, "action": a.action,
+            "target": a.target, "outcome": a.outcome, "details": a.details })
+        })
+        .collect();
+    ok_json(rows)
 }
 
 async fn killed(State(st): State<AdminState>) -> ApiResult {
@@ -880,6 +1122,70 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn users_roles_and_the_admin_audit_trail() {
+        let mut cfg = Config::default();
+        cfg.admin.token = Some("root-token".into());
+        let app = App::ephemeral_audited(cfg, rules()).unwrap();
+        let r = router(app.clone());
+        let remote = "10.0.0.9:1234";
+        let call = |m: &'static str, uri: &'static str, tok: Option<&'static str>, body: Option<Value>| {
+            send(&r, request(m, uri, remote, tok, body))
+        };
+
+        // The admin token creates an operator and a viewer; tokens are shown once.
+        let (s, v) =
+            call("POST", "/v1/users", Some("root-token"), Some(json!({ "name": "asha", "roles": ["operator"] }))).await;
+        assert_eq!(s, StatusCode::OK, "{v}");
+        let op: &'static str = Box::leak(v["token"].as_str().unwrap().to_string().into_boxed_str());
+        let (_, v) =
+            call("POST", "/v1/users", Some("root-token"), Some(json!({ "name": "vik", "roles": ["viewer"] }))).await;
+        let viewer: &'static str = Box::leak(v["token"].as_str().unwrap().to_string().into_boxed_str());
+        assert!(call("GET", "/v1/users", Some("root-token"), None).await.1.to_string().find(op).is_none());
+
+        // Who am I, and what each role may do.
+        let (_, me) = call("GET", "/v1/me", Some(op), None).await;
+        assert_eq!((me["name"].as_str(), me["permissions"].as_array().unwrap().len()), (Some("asha"), 2));
+        assert_eq!(call("GET", "/v1/status", Some(viewer), None).await.0, StatusCode::OK);
+        assert_eq!(call("POST", "/v1/agents/bot/kill", Some(viewer), None).await.0, StatusCode::FORBIDDEN);
+        assert_eq!(call("POST", "/v1/agents/bot/kill", Some(op), None).await.0, StatusCode::OK);
+        assert_eq!(call("GET", "/v1/users", Some(op), None).await.0, StatusCode::FORBIDDEN);
+        assert_eq!(call("POST", "/v1/policy/reload", Some(op), None).await.0, StatusCode::FORBIDDEN);
+        assert_eq!(call("GET", "/v1/status", Some("guess"), None).await.0, StatusCode::UNAUTHORIZED);
+
+        // Disabled users are out.
+        let (s, _) = call("PATCH", "/v1/users/vik", Some("root-token"), Some(json!({ "disabled": true }))).await;
+        assert_eq!(s, StatusCode::OK);
+        assert_eq!(call("GET", "/v1/status", Some(viewer), None).await.0, StatusCode::UNAUTHORIZED);
+
+        // Everything above is in the signed audit log, attributed.
+        app.recorder.flush().await;
+        let (_, trail) = call("GET", "/v1/audit/admin", Some(op), None).await;
+        let rows: Vec<(String, String, String, String)> = trail
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| {
+                let f = |k: &str| r[k].as_str().unwrap_or_default().to_string();
+                (f("actor"), f("action"), f("target"), f("outcome"))
+            })
+            .collect();
+        let has = |actor: &str, action: &str, outcome: &str| {
+            rows.iter().any(|(a, ac, _, o)| a == actor && ac == action && o == outcome)
+        };
+        assert!(has("admin", "user.create", "ok"), "{rows:?}");
+        assert!(
+            has("asha", "agent.kill", "ok")
+                && has("vik", "access.denied", "denied")
+                && has("admin", "user.update", "ok")
+        );
+        assert!(rows.iter().any(|r| r.1 == "agent.kill" && r.2 == "bot"));
+        // Newest first, and tokens never appear.
+        assert_eq!(rows[0].1, "user.update");
+        assert!(!trail.to_string().contains(op) && !trail.to_string().contains(viewer));
+        assert!(app.audit.as_ref().unwrap().verify().unwrap().ok);
+    }
+
+    #[tokio::test]
     async fn report_token_may_only_post_inventories() {
         let mut cfg = Config::default();
         cfg.admin.token = Some("test-admin-token".into());
@@ -895,7 +1201,7 @@ mod tests {
         // Nothing else: not reading inventories, not the rest of the API.
         for (m, uri) in [("GET", "/v1/inventory"), ("GET", "/v1/status"), ("POST", "/v1/agents/a/kill")] {
             let (s, _) = send(&r, request(m, uri, remote, Some("test-report-token"), None)).await;
-            assert_eq!(s, StatusCode::UNAUTHORIZED, "{m} {uri}");
+            assert_eq!(s, StatusCode::FORBIDDEN, "{m} {uri}");
         }
         // The admin token still reports too.
         let (s, _) = send(&r, request("POST", "/v1/inventory", remote, Some("test-admin-token"), Some(inv))).await;
