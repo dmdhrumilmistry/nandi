@@ -1897,7 +1897,7 @@ checksum = "743fb55ba31b18fb1ecef6bdc9aa2743314978ac084044301a7eee33fb99a20d"
 
 [[package]]
 name = "nandi"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "bytes",
@@ -1924,7 +1924,7 @@ dependencies = [
 
 [[package]]
 name = "nandi-audit"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "ed25519-dalek 3.0.0",
  "getrandom 0.4.3",
@@ -1940,7 +1940,7 @@ dependencies = [
 
 [[package]]
 name = "nandi-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "hex",
  "parking_lot 0.13.0",
@@ -1956,7 +1956,7 @@ dependencies = [
 
 [[package]]
 name = "nandi-detect"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "aho-corasick",
  "base64 0.23.1",
@@ -1968,7 +1968,7 @@ dependencies = [
 
 [[package]]
 name = "nandi-discover"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "nandi-core",
  "nandi-detect",
@@ -1982,7 +1982,7 @@ dependencies = [
 
 [[package]]
 name = "nandi-engine"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "nandi-core",
  "nandi-detect",
@@ -1995,7 +1995,7 @@ dependencies = [
 
 [[package]]
 name = "nandi-eval"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "nandi-core",
@@ -2008,7 +2008,7 @@ dependencies = [
 
 [[package]]
 name = "nandi-gateway"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -2042,7 +2042,7 @@ dependencies = [
 
 [[package]]
 name = "nandi-identity"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "base64 0.23.1",
  "biscuit-auth",
@@ -2060,7 +2060,7 @@ dependencies = [
 
 [[package]]
 name = "nandi-ml"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "nandi-engine",
@@ -2073,7 +2073,7 @@ dependencies = [
 
 [[package]]
 name = "nandi-policy"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "cedar-policy",
  "nandi-core",
@@ -2086,7 +2086,7 @@ dependencies = [
 
 [[package]]
 name = "nandi-proto"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "base64 0.23.1",
  "memchr",
@@ -2097,7 +2097,7 @@ dependencies = [
 
 [[package]]
 name = "nandi-sense"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "aya",
