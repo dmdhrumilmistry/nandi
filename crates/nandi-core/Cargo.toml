@@ -17,3 +17,9 @@ uuid.workspace = true
 sha2.workspace = true
 hex.workspace = true
 parking_lot.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+plist = "1"
+
+[target.'cfg(windows)'.dependencies]
+winreg = "0.55"

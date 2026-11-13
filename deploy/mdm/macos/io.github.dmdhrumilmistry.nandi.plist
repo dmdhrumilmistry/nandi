@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Managed settings for nandi, for Jamf Pro: Computers > Configuration
+  Profiles > Application & Custom Settings > Upload, preference domain
+  io.github.dmdhrumilmistry.nandi. Other MDMs: use nandi.mobileconfig.
+
+  Keys mirror nandi.yaml. Settings given here win over every user's own
+  nandi.yaml. For anything easier to write as YAML, put it under Config.
+-->
+<plist version="1.0">
+<dict>
+	<key>mode</key>
+	<string>enforce</string>
+	<key>policy</key>
+	<dict>
+		<key>default</key>
+		<string>allow</string>
+		<key>rules</key>
+		<array>
+			<string>/Library/Application Support/nandi/policies/coding-agent.yaml</string>
+			<string>/Library/Application Support/nandi/policies/payments.yaml</string>
+		</array>
+	</dict>
+	<key>servers</key>
+	<dict>
+		<key>on_unpinned</key>
+		<string>alert</string>
+		<key>osv</key>
+		<dict>
+			<key>enabled</key>
+			<true/>
+		</dict>
+	</dict>
+	<key>report</key>
+	<dict>
+		<key>url</key>
+		<string>https://nandi.corp.example</string>
+		<key>token</key>
+		<string>REPLACE-WITH-THE-SERVER-REPORT-TOKEN</string>
+	</dict>
+	<key>Config</key>
+	<string>approvals:
+  timeout_secs: 300
+  on_timeout: deny
+</string>
+</dict>
+</plist>

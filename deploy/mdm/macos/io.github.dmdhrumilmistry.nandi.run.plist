@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Runs nandi for every user who logs in (install in /Library/LaunchAgents).
+  Each user gets their own proxy, dashboard and data under
+  ~/.config/nandi; managed settings apply on top of ~/.config/nandi/nandi.yaml,
+  which may be absent.
+-->
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>io.github.dmdhrumilmistry.nandi.run</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/bin/sh</string>
+		<string>-c</string>
+		<string>mkdir -p "$HOME/.config/nandi" &amp;&amp; exec /usr/local/bin/nandi run -c "$HOME/.config/nandi/nandi.yaml" 2&gt;&gt;"$HOME/Library/Logs/nandi.log"</string>
+	</array>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<true/>
+	<key>ThrottleInterval</key>
+	<integer>30</integer>
+	<key>ProcessType</key>
+	<string>Background</string>
+</dict>
+</plist>

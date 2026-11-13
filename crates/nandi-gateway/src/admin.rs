@@ -56,6 +56,8 @@ struct AdminState {
     app: Arc<App>,
     /// SHA-256 of the configured bearer token, when one is set.
     token_hash: Option<String>,
+    /// SHA-256 of `admin.report_token`: may only `POST /v1/inventory`.
+    report_hash: Option<String>,
     /// Flips to `true` when the server shuts down, ending SSE streams.
     shutdown: watch::Receiver<bool>,
 }
@@ -140,7 +142,14 @@ fn build(app: Arc<App>, shutdown: watch::Receiver<bool>) -> Router {
             sha256_hex(nandi_core::util::new_id())
         }
     });
-    let state = AdminState { app, token_hash, shutdown };
+    let report_hash = app.cfg.admin.report_token.as_deref().and_then(|t| match resolve_secret(t) {
+        Ok(t) if !t.is_empty() => Some(sha256_hex(t)),
+        _ => {
+            tracing::error!("admin.report_token cannot be resolved; inventory reports need the admin token");
+            None
+        }
+    });
+    let state = AdminState { app, token_hash, report_hash, shutdown };
     Router::new()
         .route("/", get(index))
         .route("/healthz", get(healthz))
@@ -184,6 +193,14 @@ fn build(app: Arc<App>, shutdown: watch::Receiver<bool>) -> Router {
 async fn guard(State(st): State<AdminState>, req: Request, next: Next) -> Response {
     let path = req.uri().path();
     if path == "/healthz" {
+        return next.run(req).await;
+    }
+    // The report token admits inventory reports and nothing else.
+    if let Some(report) = &st.report_hash
+        && path == "/v1/inventory"
+        && req.method() == Method::POST
+        && bearer_matches(req.headers(), report)
+    {
         return next.run(req).await;
     }
     match &st.token_hash {
@@ -356,6 +373,7 @@ async fn status(State(st): State<AdminState>) -> ApiResult {
         "version": env!("CARGO_PKG_VERSION"),
         "mode": app.cfg.mode,
         "fail_mode": app.cfg.fail_mode,
+        "managed": app.cfg.managed_sources,
         "uptime_secs": app.started.elapsed().as_secs(),
         "routes": routes,
         "sessions": app.engine.sessions().len(),
@@ -859,6 +877,29 @@ mod tests {
         assert!(csp.contains("script-src 'sha256-"), "{csp}");
         assert!(!csp.contains("unsafe-inline"));
         assert_eq!(send(&r, request("GET", "/healthz", remote, None, None)).await.0, StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn report_token_may_only_post_inventories() {
+        let mut cfg = Config::default();
+        cfg.admin.token = Some("test-admin-token".into());
+        cfg.admin.report_token = Some("test-report-token".into());
+        let r = router(ephemeral(cfg));
+        let remote = "10.0.0.7:1234";
+        let inv = json!({ "host": "laptop", "scanned_at_ms": 1, "nandi_version": "0.1.0", "items": [],
+                          "coverage": { "servers_total": 0, "servers_via_nandi": 0, "servers_wrapped": 0,
+                                        "servers_routed": 0, "hook_clients": 0, "hooks_installed": 0 } });
+        let (s, v) =
+            send(&r, request("POST", "/v1/inventory", remote, Some("test-report-token"), Some(inv.clone()))).await;
+        assert_eq!(s, StatusCode::OK, "{v}");
+        // Nothing else: not reading inventories, not the rest of the API.
+        for (m, uri) in [("GET", "/v1/inventory"), ("GET", "/v1/status"), ("POST", "/v1/agents/a/kill")] {
+            let (s, _) = send(&r, request(m, uri, remote, Some("test-report-token"), None)).await;
+            assert_eq!(s, StatusCode::UNAUTHORIZED, "{m} {uri}");
+        }
+        // The admin token still reports too.
+        let (s, _) = send(&r, request("POST", "/v1/inventory", remote, Some("test-admin-token"), Some(inv))).await;
+        assert_eq!(s, StatusCode::OK);
     }
 
     #[tokio::test]

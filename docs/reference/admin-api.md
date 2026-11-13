@@ -27,7 +27,7 @@ page); without a token they only answer loopback clients.
 | POST | `/v1/policy/reload` | reload policy files |
 | GET | `/v1/audit/verify` | verify the audit chain |
 | POST | `/v1/hook/{format}` | evaluate a hook payload |
-| POST | `/v1/inventory` | store a host's AI footprint (`nandi discover --report`), JSON body up to 2 MiB |
+| POST | `/v1/inventory` | store a host's AI footprint (`nandi discover --report`), JSON body up to 2 MiB; also accepts `admin.report_token` |
 | GET | `/v1/inventory` | latest inventory of every reporting host, newest scan first |
 | GET | `/v1/tokens/revoked` | revoked Biscuit block ids |
 | POST | `/v1/tokens/revoke` | revoke a Biscuit block, body `{"id": "<hex>"}` |

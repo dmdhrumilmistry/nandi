@@ -10,10 +10,15 @@ Relative paths are resolved against the directory of the configuration file.
 
 ## Sections
 
+Managed settings pushed by an MDM or configuration management tool are
+merged over this file and cannot be changed by users; see
+[Fleets](../operations/mdm.md). `nandi managed` shows the ones in effect.
+
 | Section | Controls | Details |
 |---|---|---|
 | `mode`, `fail_mode` | monitor or enforce; behaviour when a dependency fails | [How it works](../how-it-works.md) |
-| `listen`, `admin` | proxy and admin listeners, TLS, admin token, dashboard | [Proxy](../guides/proxy.md), [Admin API](admin-api.md) |
+| `listen`, `admin` | proxy and admin listeners, TLS, admin token, report-only token, dashboard | [Proxy](../guides/proxy.md), [Admin API](admin-api.md) |
+| `report` | where `nandi discover --report` sends inventories | [Fleets](../operations/mdm.md#reporting-to-a-central-dashboard) |
 | `routes` | upstreams on the proxy, credential injection | [Proxy](../guides/proxy.md) |
 | `identity` | anonymous access, API keys, JWT, Biscuit | [Identity](../operations/identity.md) |
 | `policy` | default action, rule and Cedar files | [Rules](../policy/rules.md), [Cedar](../policy/cedar.md) |

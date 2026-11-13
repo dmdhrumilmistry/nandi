@@ -1,0 +1,9 @@
+# Reports this user's AI footprint to the central nandi (see managed.yaml,
+# section report). Started by nandi-discover.timer.
+[Unit]
+Description=Report AI agents, MCP servers and hooks to nandi
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/nandi discover --report -c %h/.config/nandi/nandi.yaml
+StandardOutput=null

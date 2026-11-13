@@ -554,6 +554,23 @@ Options:
   -h, --help                   Print help
 ```
 
+### nandi managed
+
+```text
+Show the managed settings an MDM or configuration management tool applied on this machine, or check a managed settings file before deploying it
+
+Usage: nandi managed [OPTIONS]
+
+Options:
+  -c, --config <CONFIG>        Configuration file [env: NANDI_CONFIG=] [default: nandi.yaml]
+      --file <PATH>            Check these YAML files (or directories of them) instead of the machine's managed sources
+      --json                   Print the merged managed settings as JSON
+      --log-level <LOG_LEVEL>  Log filter (error, warn, info, debug, trace or a tracing directive) [env: NANDI_LOG=] [default: info]
+  -h, --help                   Print help
+```
+
+See [Fleets](../operations/mdm.md).
+
 ### nandi version
 
 ```text

@@ -142,15 +142,17 @@ Run it as the user whose agents you want to see (it reads that user's
 home directory). With cron:
 
 ```cron
-17 * * * * NANDI_ADMIN_TOKEN=... /usr/local/bin/nandi discover --report --admin https://nandi.internal:8788 >/dev/null
+17 * * * * NANDI_ADMIN_TOKEN=<report token> /usr/local/bin/nandi discover --report --admin https://nandi.internal:8788 >/dev/null
 ```
 
-From a device management tool (Jamf, Intune, Kandji, Fleet), deploy the
-`nandi` binary and run the same command in a per-user script. Each report
-replaces the host's previous one; the host name comes from the operating
-system (override with `NANDI_HOST`). The admin API must be reachable from
-the machines, so use `admin.token` and bind `admin.listen` on an internal
-interface.
+Give machines the central nandi's `admin.report_token`, which can only post
+inventories, rather than its admin token. With a `report` section in the
+configuration (`url` and `token`), `nandi discover --report` needs no other
+arguments. On a fleet, set it as a managed setting and use the ready-made
+launch agents, scheduled tasks and systemd timers described in
+[Fleets: Jamf, Intune and Linux](../operations/mdm.md). Each report replaces
+the host's previous one; the host name comes from the operating system
+(override with `NANDI_HOST`).
 
 ## Privacy
 

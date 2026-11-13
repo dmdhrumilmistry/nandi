@@ -53,6 +53,7 @@ NAV = [
         ("operations/audit.md", "Audit log"),
         ("operations/observability.md", "Observability"),
         ("operations/deployment.md", "Deployment"),
+        ("operations/mdm.md", "Fleets: Jamf, Intune, Linux"),
     ]),
     ("Reference", [
         ("reference/configuration.md", "Configuration"),

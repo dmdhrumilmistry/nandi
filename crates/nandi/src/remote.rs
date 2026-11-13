@@ -61,7 +61,7 @@ pub fn admin_url_from_listen(listen: &str) -> String {
 
 /// Fill in URL and token defaults from the config file, when it exists.
 pub fn resolve_target(opts: &AdminOpts, config: &Path) -> (String, Option<String>) {
-    let cfg = config.exists().then(|| Config::load(config).ok()).flatten();
+    let cfg = Config::load(config).ok();
     let url = opts.admin.clone().unwrap_or_else(|| {
         cfg.as_ref().map_or_else(|| "http://127.0.0.1:8788".to_string(), |c| admin_url_from_listen(&c.admin.listen))
     });
@@ -70,6 +70,20 @@ pub fn resolve_target(opts: &AdminOpts, config: &Path) -> (String, Option<String
         .clone()
         .filter(|t| !t.is_empty())
         .or_else(|| cfg.as_ref().and_then(|c| c.admin.token.as_deref()).and_then(|t| resolve_secret(t).ok()));
+    (url.trim_end_matches('/').to_string(), token)
+}
+
+/// Where `nandi discover --report` sends inventories: `--admin` / `--token`,
+/// else the `report` section, else the local admin API like
+/// [`resolve_target`].
+pub fn resolve_report_target(opts: &AdminOpts, config: &Path) -> (String, Option<String>) {
+    let report = Config::load(config).ok().map(|c| c.report).unwrap_or_default();
+    let Some(url) = opts.admin.clone().or(report.url) else { return resolve_target(opts, config) };
+    let token = opts
+        .token
+        .clone()
+        .filter(|t| !t.is_empty())
+        .or_else(|| report.token.as_deref().and_then(|t| resolve_secret(t).ok()));
     (url.trim_end_matches('/').to_string(), token)
 }
 

@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>PayloadDisplayName</key>
+	<string>nandi managed settings</string>
+	<key>PayloadDescription</key>
+	<string>Settings for the nandi AI agent gateway that users cannot change.</string>
+	<key>PayloadIdentifier</key>
+	<string>io.github.dmdhrumilmistry.nandi.profile</string>
+	<key>PayloadOrganization</key>
+	<string>Your organization</string>
+	<key>PayloadScope</key>
+	<string>System</string>
+	<key>PayloadType</key>
+	<string>Configuration</string>
+	<key>PayloadUUID</key>
+	<string>0DE930EA-BF1C-5CBE-BF72-33B101F47EDB</string>
+	<key>PayloadVersion</key>
+	<integer>1</integer>
+	<key>PayloadContent</key>
+	<array>
+		<dict>
+			<key>PayloadDisplayName</key>
+			<string>nandi</string>
+			<key>PayloadIdentifier</key>
+			<string>io.github.dmdhrumilmistry.nandi.settings</string>
+			<key>PayloadType</key>
+			<string>com.apple.ManagedClient.preferences</string>
+			<key>PayloadUUID</key>
+			<string>725DCAB4-3F4F-50C6-8DDE-BD2AA4451070</string>
+			<key>PayloadVersion</key>
+			<integer>1</integer>
+			<key>PayloadContent</key>
+			<dict>
+				<key>io.github.dmdhrumilmistry.nandi</key>
+				<dict>
+					<key>Forced</key>
+					<array>
+						<dict>
+							<key>mcx_preference_settings</key>
+							<dict>
+								<key>mode</key>
+								<string>enforce</string>
+								<key>policy</key>
+								<dict>
+									<key>default</key>
+									<string>allow</string>
+									<key>rules</key>
+									<array>
+										<string>/Library/Application Support/nandi/policies/coding-agent.yaml</string>
+										<string>/Library/Application Support/nandi/policies/payments.yaml</string>
+									</array>
+								</dict>
+								<key>servers</key>
+								<dict>
+									<key>on_unpinned</key>
+									<string>alert</string>
+									<key>osv</key>
+									<dict>
+										<key>enabled</key>
+										<true/>
+									</dict>
+								</dict>
+								<key>report</key>
+								<dict>
+									<key>url</key>
+									<string>https://nandi.corp.example</string>
+									<key>token</key>
+									<string>REPLACE-WITH-THE-SERVER-REPORT-TOKEN</string>
+								</dict>
+								<key>Config</key>
+								<string>approvals:
+  timeout_secs: 300
+  on_timeout: deny
+</string>
+							</dict>
+						</dict>
+					</array>
+				</dict>
+			</dict>
+		</dict>
+	</array>
+</dict>
+</plist>

@@ -44,6 +44,7 @@ pub struct Config {
     pub data_dir: Option<PathBuf>,
     pub listen: Listen,
     pub admin: AdminConfig,
+    pub report: ReportConfig,
     pub routes: Vec<Route>,
     pub identity: IdentityConfig,
     pub policy: PolicyConfig,
@@ -60,11 +61,16 @@ pub struct Config {
     pub a2a: A2aConfig,
     pub sensor: SensorConfig,
     pub ml: MlConfig,
+    /// Where managed settings applied to this configuration came from
+    /// (see [`crate::managed`]); empty when there were none.
+    #[serde(skip)]
+    pub managed_sources: Vec<String>,
 }
 
 impl Config {
     /// Parse a YAML document.
     pub fn from_yaml(text: &str) -> Result<Self> {
+        let text = text.strip_prefix('\u{feff}').unwrap_or(text);
         if text.trim().is_empty() {
             return Ok(Self::default());
         }
@@ -74,14 +80,52 @@ impl Config {
     /// Load and parse a YAML file. Relative paths inside the config are
     /// resolved against the file's directory by the callers that use them,
     /// via [`Config::base_dir`].
+    ///
+    /// Managed settings of this machine ([`crate::managed::load`]) are
+    /// merged over the file.
     pub fn load(path: &Path) -> Result<Self> {
-        let text =
-            std::fs::read_to_string(path).map_err(|e| Error::Config(format!("reading {}: {e}", path.display())))?;
-        let mut cfg = Self::from_yaml(&text)?;
+        Self::load_with(path, &crate::managed::load()?)
+    }
+
+    /// [`Config::load`] with the given managed settings. With managed
+    /// settings the file may be missing: they are then the whole
+    /// configuration.
+    pub fn load_with(path: &Path, managed: &crate::managed::Managed) -> Result<Self> {
+        let text = match std::fs::read_to_string(path) {
+            Ok(t) => t,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound && !managed.is_empty() => String::new(),
+            Err(e) => return Err(Error::Config(format!("reading {}: {e}", path.display()))),
+        };
+        let mut cfg = if managed.is_empty() { Self::from_yaml(&text)? } else { Self::merged(&text, managed)? };
+        cfg.managed_sources = managed.sources.clone();
         if cfg.data_dir.is_none() {
             cfg.data_dir = Some(path.parent().unwrap_or(Path::new(".")).join("nandi-data"));
         }
         Ok(cfg)
+    }
+
+    /// A configuration made of managed settings alone.
+    pub fn from_managed(managed: &crate::managed::Managed) -> Result<Self> {
+        let mut cfg = Self::merged("", managed)?;
+        cfg.managed_sources = managed.sources.clone();
+        Ok(cfg)
+    }
+
+    /// Parse `text` with `managed` merged over it.
+    fn merged(text: &str, managed: &crate::managed::Managed) -> Result<Self> {
+        let text = text.strip_prefix('\u{feff}').unwrap_or(text);
+        let mut base = if text.trim().is_empty() {
+            serde_json::Map::new()
+        } else {
+            match serde_saphyr::from_str::<serde_json::Value>(text).map_err(|e| Error::Config(e.to_string()))? {
+                serde_json::Value::Object(m) => m,
+                serde_json::Value::Null => serde_json::Map::new(),
+                _ => return Err(Error::Config("the configuration must be a mapping".into())),
+            }
+        };
+        crate::managed::merge(&mut base, managed.value.clone());
+        serde_json::from_value(serde_json::Value::Object(base))
+            .map_err(|e| Error::Config(format!("{e} (with managed settings from {})", managed.sources.join(", "))))
     }
 
     pub fn data_dir(&self) -> PathBuf {
@@ -123,13 +167,28 @@ pub struct AdminConfig {
     /// Bearer token for the admin API (`env:` / `file:` allowed). When unset
     /// the admin API only accepts loopback connections.
     pub token: Option<String>,
+    /// A second bearer token that may only report inventories
+    /// (`POST /v1/inventory`, from `nandi discover --report`). Give this one
+    /// to the fleet instead of the admin token.
+    pub report_token: Option<String>,
     pub ui: bool,
 }
 
 impl Default for AdminConfig {
     fn default() -> Self {
-        Self { listen: "127.0.0.1:8788".into(), token: None, ui: true }
+        Self { listen: "127.0.0.1:8788".into(), token: None, report_token: None, ui: true }
     }
+}
+
+/// Where `nandi discover --report` sends inventories, when `--admin` is not
+/// given. Usually set as a managed setting on every machine of a fleet.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ReportConfig {
+    /// Admin API base URL of the central nandi, e.g. `https://nandi.corp.example`.
+    pub url: Option<String>,
+    /// Its `admin.report_token` (`env:` / `file:` allowed).
+    pub token: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -886,6 +945,53 @@ servers:
         assert_eq!(c.servers.osv.on_vulnerable, Verdict::Ask);
         assert_eq!(c.servers.osv.on_malicious, Verdict::Deny);
         assert_eq!(c.servers.osv.url, "https://api.osv.dev");
+    }
+
+    #[test]
+    fn managed_settings_override_the_file() {
+        let dir = std::env::temp_dir().join(format!("nandi-cfg-{}", crate::util::new_id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let user = dir.join("nandi.yaml");
+        let example = include_str!("../../../examples/nandi.yaml");
+        std::fs::write(&user, example).unwrap();
+        let managed_file = dir.join("managed.yaml");
+        std::fs::write(
+            &managed_file,
+            "mode: enforce\nservers: { on_unknown: deny }\napprovals: { timeout_secs: 30 }\n",
+        )
+        .unwrap();
+
+        // Merging through JSON gives the same result as parsing directly.
+        let none = crate::managed::Managed::default();
+        let direct = Config::load_with(&user, &none).unwrap();
+        let mut noop = crate::managed::Managed::default();
+        noop.value.insert("mode".into(), serde_json::to_value(direct.mode).unwrap());
+        noop.sources.push("test".into());
+        let mut via_merge = Config::load_with(&user, &noop).unwrap();
+        assert_eq!(via_merge.managed_sources, ["test"]);
+        via_merge.managed_sources.clear();
+        assert_eq!(via_merge, direct);
+
+        let m = crate::managed::load_files(&[&managed_file]).unwrap();
+        let c = Config::load_with(&user, &m).unwrap();
+        assert_eq!(c.mode, Mode::Enforce);
+        assert_eq!(c.servers.on_unknown, Verdict::Deny);
+        assert_eq!(c.approvals.timeout_secs, 30);
+        // Untouched settings keep the file's values.
+        assert_eq!(c.listen, direct.listen);
+        assert!(c.servers.on_unpinned == direct.servers.on_unpinned && c.tools == direct.tools);
+
+        // Managed settings alone are a configuration.
+        let c = Config::load_with(&dir.join("absent.yaml"), &m).unwrap();
+        assert_eq!(c.mode, Mode::Enforce);
+        assert!(Config::load_with(&dir.join("absent.yaml"), &none).is_err());
+
+        // Bad managed values name their source.
+        std::fs::write(&managed_file, "mode: enforcing\n").unwrap();
+        let m = crate::managed::load_files(&[&managed_file]).unwrap();
+        let e = Config::load_with(&user, &m).unwrap_err().to_string();
+        assert!(e.contains("managed.yaml"), "{e}");
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

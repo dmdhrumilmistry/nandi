@@ -7,6 +7,7 @@ pub mod config;
 pub mod decision;
 pub mod error;
 pub mod event;
+pub mod managed;
 pub mod server;
 pub mod state;
 pub mod util;

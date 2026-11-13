@@ -227,6 +227,18 @@ enum Cmd {
     /// Watch agent processes on this host and print the sensor events
     /// (the same sensor `run` starts when `sensor.enabled` is set).
     Sense,
+    /// Show the managed settings an MDM or configuration management tool
+    /// applied on this machine, or check a managed settings file before
+    /// deploying it.
+    Managed {
+        /// Check these YAML files (or directories of them) instead of the
+        /// machine's managed sources.
+        #[arg(long = "file", value_name = "PATH")]
+        files: Vec<PathBuf>,
+        /// Print the merged managed settings as JSON.
+        #[arg(long)]
+        json: bool,
+    },
     /// Print the version.
     Version,
 }
@@ -356,8 +368,15 @@ fn init_logging(filter: &str, json: bool) {
 }
 
 /// Load the config file and return it with its directory.
+/// Managed settings of the machine are merged over it.
 fn load_config(path: &Path) -> anyhow::Result<(Config, PathBuf)> {
-    let cfg = Config::load(path).map_err(|e| anyhow::anyhow!("{e} (create one with `nandi init`)"))?;
+    let managed = nandi_core::managed::load()?;
+    for w in &managed.warnings {
+        tracing::warn!("managed settings: {w}");
+    }
+    let cfg = Config::load_with(path, &managed).map_err(|e| {
+        if managed.is_empty() { anyhow::anyhow!("{e} (create one with `nandi init`)") } else { anyhow::anyhow!("{e}") }
+    })?;
     let base = match path.parent() {
         Some(p) if !p.as_os_str().is_empty() => p.to_path_buf(),
         _ => PathBuf::from("."),
@@ -434,6 +453,9 @@ async fn run(config: &Path, log_level: &str) -> anyhow::Result<()> {
     let classifier = ml_classifier(&cfg, &base)?;
     let app = App::build(cfg, &base, classifier)?;
     tracing::info!(mode = ?app.cfg.mode, proxy = %app.cfg.listen.proxy, "nandi {} starting", env!("CARGO_PKG_VERSION"));
+    if !app.cfg.managed_sources.is_empty() {
+        tracing::info!(sources = %app.cfg.managed_sources.join("; "), "managed settings applied");
+    }
 
     let (tx, rx) = watch::channel(false);
     let stop = tx.clone();
@@ -764,11 +786,55 @@ async fn dispatch(cli: Cli) -> anyhow::Result<i32> {
             sense_print(cfg.sensor).await?;
             Ok(0)
         }
+        Cmd::Managed { files, json } => managed(&files, json, config),
         Cmd::Version => {
             println!("nandi {}", env!("CARGO_PKG_VERSION"));
             Ok(0)
         }
     }
+}
+
+/// `nandi managed`: where managed settings come from and whether the
+/// result is a valid configuration together with `config`.
+fn managed(files: &[PathBuf], json: bool, config: &Path) -> anyhow::Result<i32> {
+    let m = if files.is_empty() {
+        nandi_core::managed::load()?
+    } else {
+        let paths: Vec<&Path> = files.iter().map(PathBuf::as_path).collect();
+        nandi_core::managed::load_files(&paths)?
+    };
+    // Check the result as a whole: unknown keys and bad values fail here.
+    let checked = if config.is_file() {
+        Config::load_with(config, &m).map(|_| format!("valid together with {}", config.display()))
+    } else {
+        Config::from_managed(&m).map(|_| "valid on its own".to_string())
+    };
+    if json {
+        let out = serde_json::json!({
+            "sources": m.sources,
+            "warnings": m.warnings,
+            "settings": m.value,
+            "error": checked.as_ref().err().map(ToString::to_string),
+        });
+        println!("{}", serde_json::to_string_pretty(&out)?);
+    } else {
+        if m.sources.is_empty() {
+            println!("no managed settings{}", if files.is_empty() { " on this machine" } else { "" });
+        }
+        for s in &m.sources {
+            println!("source   {s}");
+        }
+        for w in &m.warnings {
+            println!("skipped  {w}");
+        }
+        if !m.is_empty() {
+            match &checked {
+                Ok(note) => println!("result   {note}\n\n{}", m.to_yaml().trim_end()),
+                Err(e) => println!("result   invalid: {e}"),
+            }
+        }
+    }
+    Ok(if checked.is_err() && !m.is_empty() { 1 } else { 0 })
 }
 
 fn remote_for(opts: &AdminOpts, config: &Path) -> anyhow::Result<Remote> {

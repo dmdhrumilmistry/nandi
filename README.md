@@ -71,6 +71,12 @@ real traffic before turning it on.
 
 ## Quick start
 
+Download a static binary from the
+[latest release](https://github.com/dmdhrumilmistry/nandi/releases/latest)
+(Linux x86_64, arm64, armv7, riscv64 and ppc64le; macOS Apple Silicon and
+Intel; Windows x64 and ARM64), pull the multi-arch image
+`dmdhrumilmistry/nandi`, or build from source:
+
 ```sh
 cargo install --locked --git https://github.com/dmdhrumilmistry/nandi nandi
 
@@ -150,7 +156,7 @@ ours, so treat it as a regression suite rather than a benchmark; see
 - Operations: [monitor to enforce](docs/operations/enforce.md),
   [approvals](docs/operations/approvals.md), [identity](docs/operations/identity.md),
   [audit](docs/operations/audit.md), [observability](docs/operations/observability.md),
-  [deployment](docs/operations/deployment.md)
+  [deployment](docs/operations/deployment.md), [fleets with Jamf, Intune and Linux](docs/operations/mdm.md)
 - Reference: [configuration](docs/reference/configuration.md), [CLI](docs/reference/cli.md),
   [admin API](docs/reference/admin-api.md)
 
