@@ -154,10 +154,16 @@ impl<'a> Scanner<'a> {
     }
 
     /// `~/...` for paths under the home directory, else the path itself.
+    /// Paths under the home directory use `/` on every platform, so reports
+    /// from Windows and Unix machines read the same.
     pub fn disp(&self, p: &Path) -> String {
         match p.strip_prefix(&self.opts.home) {
             Ok(rest) if rest.as_os_str().is_empty() => "~".into(),
-            Ok(rest) => format!("~/{}", rest.display()),
+            Ok(rest) => {
+                let parts: Vec<String> =
+                    rest.components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect();
+                format!("~/{}", parts.join("/"))
+            }
             Err(_) => p.display().to_string(),
         }
     }

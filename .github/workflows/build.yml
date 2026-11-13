@@ -72,12 +72,17 @@ jobs:
           if [ "$RUNNER_OS" = Linux ]; then sudo apt-get update && sudo apt-get install -y musl-tools; fi
           cargo build --release --locked -p nandi --target ${{ matrix.target }}
 
+      - if: ${{ matrix.zig }}
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.14.1
+      - if: ${{ matrix.zig }}
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-zigbuild
       - name: Build (cargo-zigbuild)
         if: ${{ matrix.zig }}
-        run: |
-          pipx install cargo-zigbuild
-          export PATH="$HOME/.local/bin:$PATH"
-          cargo zigbuild --release --locked -p nandi --target ${{ matrix.target }}
+        run: cargo zigbuild --release --locked -p nandi --target ${{ matrix.target }}
 
       - name: Smoke test
         shell: bash
