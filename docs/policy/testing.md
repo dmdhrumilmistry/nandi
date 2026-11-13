@@ -16,7 +16,7 @@ cat > events.jsonl <<'EOF'
 EOF
 nandi policy test --events events.jsonl
 # 1    tool_call     shell/run                deny   policy.no-rm-rf
-# 2    tool_call     bank/make_payment        ask    policy.large-payment
+# 2    tool_call     bank/make_payment        ask    policy.payments-need-approval
 # 3    tool_call     github/delete_repository deny   cedar.interns-no-repo-delete
 ```
 

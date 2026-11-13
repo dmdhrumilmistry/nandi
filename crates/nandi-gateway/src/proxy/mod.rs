@@ -45,7 +45,7 @@ use tokio::net::TcpListener;
 use tokio::sync::mpsc;
 
 use nandi_core::config::{Route, RouteKind, resolve_secret};
-use nandi_core::{Event, EventKind, Source};
+use nandi_core::{Event, EventKind, ServerSpec, Source};
 use nandi_identity::Principal;
 use nandi_proto::llm::Provider;
 use nandi_proto::sse::{self, SseEvent, SseParser};
@@ -168,6 +168,9 @@ impl Proxy {
         let mut routes = Vec::with_capacity(app.cfg.routes.len());
         for route in &app.cfg.routes {
             routes.push(route_state(route).with_context(|| format!("route {:?}", route.name))?);
+            if route.kind == RouteKind::Mcp {
+                app.engine.register_server(&route.name, ServerSpec::Http { url: route.upstream.clone() });
+            }
         }
         routes.sort_by_key(|r| std::cmp::Reverse(r.route.prefix.trim_end_matches('/').len()));
         let id = &app.cfg.identity;

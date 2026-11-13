@@ -156,6 +156,26 @@ pre { margin: 6px 0 0; padding: 10px 12px; max-height: 280px; overflow: auto; ba
 .pin .state { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 5px; }
 .pin .state.changed { color: var(--ask-fg); font-weight: 550; }
 .pin .state svg { width: 12px; height: 12px; color: var(--serious); }
+.servers:not(:empty) { border-bottom: 1px solid var(--line); }
+.srv { display: grid; gap: 6px; }
+.srv .head { min-width: 0; }
+.srv .name { flex: 1; min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.srv .spec { font-family: var(--mono); font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.srv .caps { display: flex; flex-wrap: wrap; gap: 4px; }
+.srv .caps .mono-chip { margin-right: 0; }
+.srv .flags { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.flag { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 600; color: var(--ask-fg); }
+.flag svg { width: 12px; height: 12px; color: var(--serious); }
+.flag.bad { color: var(--deny-fg); }
+.flag.bad svg { color: var(--crit); }
+.r-low { background: var(--allow-bg); color: var(--allow-fg); }
+.r-low svg { color: var(--good); }
+.r-medium { background: var(--alert-bg); color: var(--alert-fg); }
+.r-medium svg { color: var(--warn); }
+.r-high { background: var(--ask-bg); color: var(--ask-fg); }
+.r-high svg { color: var(--serious); }
+.r-critical { background: var(--deny-bg); color: var(--deny-fg); }
+.r-critical svg { color: var(--crit); }
 .killed { display: flex; align-items: center; gap: 10px; }
 .killed .name { flex: 1; font-weight: 600; }
 .killform { display: flex; gap: 8px; padding: 12px 14px; border-top: 1px solid var(--line); }
@@ -358,6 +378,7 @@ table.tv td.n, table.tv th.n { text-align: right; font-variant-numeric: tabular-
       </section>
       <section class="card" aria-labelledby="h-pins">
         <header><h2 id="h-pins">Tool integrity</h2><span class="count" id="pins-count"></span></header>
+        <div class="list servers" id="servers" aria-label="MCP servers by risk"></div>
         <div class="list" id="pins"></div>
       </section>
       <section class="card" aria-labelledby="h-kill">
@@ -778,6 +799,35 @@ async function refreshPins() {
     "No tools pinned yet. Definitions are pinned the first time a server lists them.");
 }
 
+const RISK_ICON = { low: "allow", medium: "alert", high: "alert", critical: "deny" };
+function riskChip(level, score) {
+  return el("span", { class: "chip r-" + level, title: "Risk score " + score + " of 100" },
+    icon(RISK_ICON[level] || "alert"), level + " " + score);
+}
+function flag(text, bad) { return el("span", { class: bad ? "flag bad" : "flag" }, icon(bad ? "deny" : "alert"), text); }
+
+async function refreshServers() {
+  const list = await api("/v1/servers");
+  $("servers").replaceChildren(...list.slice(0, 50).map((s) => {
+    const spec = s.package ? s.package.ecosystem + ":" + s.package.name + (s.package.version ? "@" + s.package.version : "")
+      : s.spec ? (s.spec.url || [s.spec.command].concat(s.spec.args || []).join(" ")) : "seen through hooks";
+    const flags = [];
+    if (s.quarantined) flags.push(flag("Quarantined", true));
+    if (s.approval === "unapproved") flags.push(flag("Unapproved", s.quarantined));
+    if (s.approval === "mismatch") flags.push(flag("Does not match approved spec", true));
+    if (s.pinned === false && s.package && s.package.ecosystem !== "local") flags.push(flag("Unpinned", false));
+    if (s.binary_changed) flags.push(flag("Binary changed", false));
+    return el("div", { class: "item srv" },
+      el("div", { class: "head" }, el("span", { class: "name", title: s.name }, s.name), riskChip(s.level, s.score)),
+      el("div", { class: "spec", title: spec }, spec),
+      s.capabilities.length ? el("div", { class: "caps" }, ...s.capabilities.filter((c) => c !== "read_only").slice(0, 6)
+        .map((c) => el("span", { class: "mono-chip" }, c))) : null,
+      flags.length || s.binary_changed ? el("div", { class: "flags" }, ...flags,
+        s.binary_changed ? el("button", { class: "btn small", type: "button", "aria-label": "Accept new binary of " + s.name,
+          onclick: () => act("/v1/servers/accept-binary", { name: s.name }) }, "Accept binary") : null) : null);
+  }));
+}
+
 async function refreshUsage() {
   const list = await api("/v1/usage");
   if (!list.length) { fill("usage", [], "No usage recorded today."); return; }
@@ -806,7 +856,7 @@ async function refreshStatus() {
 function settle(p) { return p.catch(() => {}); }
 function refreshFast() { return settle(refreshApprovals()); }
 function refreshSlow() {
-  return Promise.all([refreshKilled(), refreshSessions(), refreshPins(), refreshUsage(), refreshStatus(), refreshFootprint()].map(settle));
+  return Promise.all([refreshKilled(), refreshSessions(), refreshServers(), refreshPins(), refreshUsage(), refreshStatus(), refreshFootprint()].map(settle));
 }
 
 // ----- AI footprint -------------------------------------------------------------

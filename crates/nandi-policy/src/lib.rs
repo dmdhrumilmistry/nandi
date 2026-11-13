@@ -24,6 +24,7 @@
 //!       group: "finance"         # agent must be in a matching group
 //!       server: "db*"
 //!       tool: "delete_*"         # may be "server/tool"
+//!       capability: payment      # name, glob or list; any of the tool's capabilities
 //!       provider: "openai"       # llm
 //!       model: "gpt-*"           # llm
 //!       peer: "*.example.com"    # a2a
@@ -64,7 +65,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use nandi_core::config::{DefaultAction, PolicyConfig};
-use nandi_core::{Category, Error, Finding, Result, Severity, Verdict};
+use nandi_core::{Capability, Category, Error, Finding, Result, Severity, Verdict};
 
 pub use plan::PlanTracker;
 pub use rules::{RuleAction, RuleKind, SessionCond};
@@ -103,6 +104,22 @@ pub struct PolicyInput<'a> {
     pub groups: &'a [String],
     pub session: SessionFacts,
     pub action: Action<'a>,
+    /// Capabilities of the called tool (`CallTool` only). Empty when
+    /// unknown; rules with `match.capability` then do not match.
+    pub capabilities: &'a [Capability],
+}
+
+impl<'a> PolicyInput<'a> {
+    /// Input without capabilities.
+    pub fn new(agent: &'a str, groups: &'a [String], session: SessionFacts, action: Action<'a>) -> Self {
+        Self { agent, groups, session, action, capabilities: &[] }
+    }
+
+    /// The same input with the called tool's capabilities.
+    pub fn with_capabilities(mut self, capabilities: &'a [Capability]) -> Self {
+        self.capabilities = capabilities;
+        self
+    }
 }
 
 /// One past tool call in the session, oldest first in history slices.
@@ -223,14 +240,23 @@ impl PolicySet {
     /// rule or argument-independent Cedar `forbid` covers it, or the default
     /// is deny and no rule or policy could permit it. Conditions on arguments
     /// and session state are assumed satisfiable, so this over-approximates
-    /// visibility and never hides a usable tool.
-    pub fn tool_visible(&self, agent: &str, groups: &[String], server: &str, tool: &str) -> bool {
-        let (denied, mut allow_possible) = self.rules.tool_status(agent, groups, server, tool);
+    /// visibility and never hides a usable tool. `capabilities` are the
+    /// tool's capabilities; they are static, so capability conditions are
+    /// decided here.
+    pub fn tool_visible(
+        &self,
+        agent: &str,
+        groups: &[String],
+        server: &str,
+        tool: &str,
+        capabilities: &[Capability],
+    ) -> bool {
+        let (denied, mut allow_possible) = self.rules.tool_status(agent, groups, server, tool, capabilities);
         if denied {
             return false;
         }
         if let Some(cedar) = &self.cedar {
-            let (denied, allowed) = cedar.tool_status(agent, groups, server, tool);
+            let (denied, allowed) = cedar.tool_status(agent, groups, server, tool, capabilities);
             if denied {
                 return false;
             }
@@ -257,12 +283,7 @@ mod tests {
     use serde_json::json;
 
     fn call<'a>(agent: &'a str, server: &'a str, tool: &'a str, args: &'a Value) -> PolicyInput<'a> {
-        PolicyInput {
-            agent,
-            groups: &[],
-            session: SessionFacts::default(),
-            action: Action::CallTool { server, tool, args },
-        }
+        PolicyInput::new(agent, &[], SessionFacts::default(), Action::CallTool { server, tool, args })
     }
 
     const RULES: &str = r#"
@@ -330,11 +351,8 @@ forbid(principal, action, resource == Tool::"k8s/exec");
         let p = PolicySet::from_sources(DefaultAction::Deny, Some(cedar), None, &[RULES]).unwrap();
         let ops = vec!["ops".to_string()];
         let none = json!({});
-        let input = |tool| PolicyInput {
-            agent: "a",
-            groups: &ops,
-            session: SessionFacts::default(),
-            action: Action::CallTool { server: "k8s", tool, args: &none },
+        let input = |tool| {
+            PolicyInput::new("a", &ops, SessionFacts::default(), Action::CallTool { server: "k8s", tool, args: &none })
         };
         let out = p.evaluate(&input("get_pods"), &[]);
         assert!(out.permitted && out.findings.is_empty());
@@ -342,11 +360,11 @@ forbid(principal, action, resource == Tool::"k8s/exec");
         assert_eq!(out.findings.len(), 1);
         assert_eq!(out.findings[0].rule, "cedar.no-exec");
 
-        assert!(p.tool_visible("a", &ops, "k8s", "get_pods"));
-        assert!(!p.tool_visible("a", &ops, "k8s", "exec"));
-        assert!(!p.tool_visible("a", &[], "k8s", "get_pods"));
-        assert!(p.tool_visible("a", &[], "fs", "read_file"));
-        assert!(!p.tool_visible("a", &[], "fs", "write_file"));
+        assert!(p.tool_visible("a", &ops, "k8s", "get_pods", &[]));
+        assert!(!p.tool_visible("a", &ops, "k8s", "exec", &[]));
+        assert!(!p.tool_visible("a", &[], "k8s", "get_pods", &[]));
+        assert!(p.tool_visible("a", &[], "fs", "read_file", &[]));
+        assert!(!p.tool_visible("a", &[], "fs", "write_file", &[]));
     }
 
     #[test]
@@ -360,9 +378,9 @@ rules:
 "#;
         let p = PolicySet::from_sources(DefaultAction::Allow, None, None, &[rules]).unwrap();
         let untrusted = vec!["untrusted".to_string()];
-        assert!(!p.tool_visible("a", &untrusted, "local", "run_shell"));
-        assert!(p.tool_visible("a", &[], "local", "run_shell"));
-        assert!(p.tool_visible("a", &untrusted, "local", "ls"));
+        assert!(!p.tool_visible("a", &untrusted, "local", "run_shell", &[]));
+        assert!(p.tool_visible("a", &[], "local", "run_shell", &[]));
+        assert!(p.tool_visible("a", &untrusted, "local", "ls", &[]));
     }
 
     #[test]
@@ -418,9 +436,9 @@ rules:
         let p = PolicySet::from_sources(DefaultAction::Allow, None, None, &[]).unwrap();
         let none = json!({});
         assert_eq!(p.evaluate(&call("a", "s", "t", &none), &[]), Outcome::default());
-        assert!(p.tool_visible("a", &[], "s", "t"));
+        assert!(p.tool_visible("a", &[], "s", "t", &[]));
         assert_eq!(p.default_action(), DefaultAction::Allow);
         let deny = PolicySet::from_sources(DefaultAction::Deny, None, None, &[]).unwrap();
-        assert!(!deny.tool_visible("a", &[], "s", "t"));
+        assert!(!deny.tool_visible("a", &[], "s", "t", &[]));
     }
 }

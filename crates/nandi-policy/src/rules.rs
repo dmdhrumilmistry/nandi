@@ -11,7 +11,7 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use nandi_core::util::glob_match;
-use nandi_core::{Category, Error, Finding, Result, Severity, Verdict};
+use nandi_core::{Capability, Category, Error, Finding, Result, Severity, Verdict};
 
 use crate::matcher::{ArgPath, ArgsMatcher};
 use crate::{Action, HistoryEntry, Outcome, PolicyInput, SessionFacts};
@@ -103,6 +103,7 @@ struct RawMatch {
     group: Option<String>,
     server: Option<String>,
     tool: Option<String>,
+    capability: Option<OneOrMany>,
     provider: Option<String>,
     model: Option<String>,
     peer: Option<String>,
@@ -112,6 +113,56 @@ struct RawMatch {
     args: Value,
     #[serde(default)]
     session: SessionCond,
+}
+
+/// A single string or a list of strings.
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum OneOrMany {
+    One(String),
+    Many(Vec<String>),
+}
+
+impl OneOrMany {
+    fn into_vec(self) -> Vec<String> {
+        match self {
+            OneOrMany::One(s) => vec![s],
+            OneOrMany::Many(v) => v,
+        }
+    }
+}
+
+/// Capability names or globs; matches when any of the tool's capabilities
+/// matches any pattern.
+#[derive(Debug, Clone, Default)]
+struct CapabilityMatcher {
+    patterns: Vec<String>,
+}
+
+impl CapabilityMatcher {
+    /// Validate patterns: plain names must be known capabilities and globs
+    /// must match at least one, so a typo can never disable a rule.
+    fn parse(patterns: Vec<String>) -> std::result::Result<Self, String> {
+        if patterns.is_empty() {
+            return Err("`capability` needs at least one name".into());
+        }
+        for p in &patterns {
+            let known = if p.contains(['*', '?']) {
+                Capability::ALL.iter().any(|c| glob_match(p, c.as_str()))
+            } else {
+                p.parse::<Capability>().is_ok()
+            };
+            if !known {
+                let names: Vec<&str> = Capability::ALL.iter().map(Capability::as_str).collect();
+                return Err(format!("unknown capability `{p}` (one of {})", names.join(", ")));
+            }
+        }
+        Ok(Self { patterns })
+    }
+
+    fn matches(&self, caps: &[Capability]) -> bool {
+        caps.iter().any(|c| self.patterns.iter().any(|p| glob_match(p, c.as_str())))
+    }
 }
 
 /// Conditions on the session's accumulated facts.
@@ -254,6 +305,7 @@ struct Rule {
     group: Option<String>,
     server: Option<String>,
     tool: Option<ToolPattern>,
+    capability: Option<CapabilityMatcher>,
     provider: Option<String>,
     model: Option<String>,
     peer: Option<String>,
@@ -275,8 +327,10 @@ impl Rule {
         opt_glob(&self.agent, agent) && self.group.as_deref().is_none_or(|p| groups.iter().any(|g| glob_match(p, g)))
     }
 
-    fn matches_tool(&self, server: &str, tool: &str) -> bool {
-        opt_glob(&self.server, server) && self.tool.as_ref().is_none_or(|t| t.matches(server, tool))
+    fn matches_tool(&self, server: &str, tool: &str, caps: &[Capability]) -> bool {
+        opt_glob(&self.server, server)
+            && self.tool.as_ref().is_none_or(|t| t.matches(server, tool))
+            && self.capability.as_ref().is_none_or(|c| c.matches(caps))
     }
 
     fn matches(&self, input: &PolicyInput<'_>) -> bool {
@@ -284,7 +338,9 @@ impl Rule {
             return false;
         }
         match input.action {
-            Action::CallTool { server, tool, args } => self.matches_tool(server, tool) && self.args.matches(args),
+            Action::CallTool { server, tool, args } => {
+                self.matches_tool(server, tool, input.capabilities) && self.args.matches(args)
+            }
             Action::ListTools { server } => opt_glob(&self.server, server),
             Action::LlmRequest { provider, model } => {
                 opt_glob(&self.provider, provider) && opt_glob(&self.model, model)
@@ -458,11 +514,18 @@ impl RuleBook {
     /// Returns `(always_denied, allow_possible)`: whether an unconditional
     /// deny rule covers the tool for this principal, and whether some allow
     /// rule could permit it for some arguments / session state.
-    pub(crate) fn tool_status(&self, agent: &str, groups: &[String], server: &str, tool: &str) -> (bool, bool) {
+    pub(crate) fn tool_status(
+        &self,
+        agent: &str,
+        groups: &[String],
+        server: &str,
+        tool: &str,
+        caps: &[Capability],
+    ) -> (bool, bool) {
         let mut allow_possible = false;
         for idx in self.tool_index.candidates(tool) {
             let rule = &self.rules[idx];
-            if !rule.matches_principal(agent, groups) || !rule.matches_tool(server, tool) {
+            if !rule.matches_principal(agent, groups) || !rule.matches_tool(server, tool, caps) {
                 continue;
             }
             match rule.action {
@@ -479,9 +542,10 @@ fn compile_rule(r: RawRule, ctx: &str, warnings: &mut Vec<String>) -> Result<Rul
     let m = r.matcher;
     use RuleKind::*;
     // Fields that only make sense for some kinds: (is set, name, kinds it applies to).
-    let fields: [(bool, &str, &[RuleKind]); 8] = [
+    let fields: [(bool, &str, &[RuleKind]); 9] = [
         (m.server.is_some(), "server", &[ToolCall, ListTools]),
         (m.tool.is_some(), "tool", &[ToolCall]),
+        (m.capability.is_some(), "capability", &[ToolCall]),
         (!m.args.is_null(), "args", &[ToolCall]),
         (m.provider.is_some(), "provider", &[Llm]),
         (m.model.is_some(), "model", &[Llm]),
@@ -498,6 +562,11 @@ fn compile_rule(r: RawRule, ctx: &str, warnings: &mut Vec<String>) -> Result<Rul
         warnings.push(format!("{ctx}: session risk bound {r} is outside 0.0-1.0"));
     }
     let args = ArgsMatcher::parse(&m.args).map_err(|e| Error::Policy(format!("{ctx}: {e}")))?;
+    let capability = m
+        .capability
+        .map(|c| CapabilityMatcher::parse(c.into_vec()))
+        .transpose()
+        .map_err(|e| Error::Policy(format!("{ctx}: {e}")))?;
     let message = r.message.or(r.description).unwrap_or_else(|| format!("matched policy rule {}", r.id));
     Ok(Rule {
         kind: m.kind,
@@ -505,6 +574,7 @@ fn compile_rule(r: RawRule, ctx: &str, warnings: &mut Vec<String>) -> Result<Rul
         group: m.group,
         server: m.server,
         tool: m.tool.as_deref().map(ToolPattern::parse),
+        capability,
         provider: m.provider,
         model: m.model,
         peer: m.peer,
@@ -597,7 +667,7 @@ mod tests {
         tool: &'a str,
         args: &'a Value,
     ) -> PolicyInput<'a> {
-        PolicyInput { agent, groups, session: SessionFacts::default(), action: Action::CallTool { server, tool, args } }
+        PolicyInput::new(agent, groups, SessionFacts::default(), Action::CallTool { server, tool, args })
     }
 
     fn run(book: &RuleBook, input: &PolicyInput<'_>, history: &[HistoryEntry]) -> Outcome {
@@ -712,7 +782,7 @@ rules:
     action: ask
 "#,
         );
-        let mk = |action| PolicyInput { agent: "a", groups: &[], session: SessionFacts::default(), action };
+        let mk = |action| PolicyInput::new("a", &[], SessionFacts::default(), action);
         let out = run(&b, &mk(Action::LlmRequest { provider: "openai", model: "gpt-3.5-turbo" }), &[]);
         assert_eq!(out.findings[0].verdict, Verdict::Deny);
         assert!(run(&b, &mk(Action::LlmRequest { provider: "openai", model: "gpt-4o" }), &[]).findings.is_empty());
@@ -805,10 +875,55 @@ rules:
     action: allow
 "#,
         );
-        assert_eq!(b.tool_status("untrusted-1", &[], "s", "run_shell"), (true, false));
-        assert_eq!(b.tool_status("trusted", &[], "s", "run_shell"), (false, false));
-        assert_eq!(b.tool_status("x", &[], "s", "write_file"), (false, false));
-        assert_eq!(b.tool_status("x", &[], "s", "read_file"), (false, true));
+        assert_eq!(b.tool_status("untrusted-1", &[], "s", "run_shell", &[]), (true, false));
+        assert_eq!(b.tool_status("trusted", &[], "s", "run_shell", &[]), (false, false));
+        assert_eq!(b.tool_status("x", &[], "s", "write_file", &[]), (false, false));
+        assert_eq!(b.tool_status("x", &[], "s", "read_file", &[]), (false, true));
+    }
+
+    #[test]
+    fn capability_rules() {
+        let b = book(
+            r#"
+rules:
+  - id: payments-need-approval
+    match: { capability: payment }
+    action: ask
+  - id: no-destruction
+    match: { capability: ["data_deletion", "file_*"], server: "prod*" }
+  - id: watch-admin
+    match: { tool: "*", capability: "identity_*" }
+    action: alert
+"#,
+        );
+        let none = json!({});
+        let pay = [Capability::Payment, Capability::ExternalSend];
+        let out = run(&b, &call("a", &[], "stripe", "create_refund", &none).with_capabilities(&pay), &[]);
+        assert_eq!(out.findings.len(), 1);
+        assert_eq!(out.findings[0].rule, "policy.payments-need-approval");
+        assert_eq!(out.findings[0].verdict, Verdict::Ask);
+        // Without capabilities a capability rule never matches.
+        assert!(run(&b, &call("a", &[], "stripe", "create_refund", &none), &[]).findings.is_empty());
+        let fw = [Capability::FileWrite];
+        let out = run(&b, &call("a", &[], "prod-fs", "write", &none).with_capabilities(&fw), &[]);
+        assert_eq!(out.findings[0].rule, "policy.no-destruction");
+        assert!(run(&b, &call("a", &[], "dev-fs", "write", &none).with_capabilities(&fw), &[]).findings.is_empty());
+        let admin = [Capability::IdentityAdmin];
+        let out = run(&b, &call("a", &[], "gh", "add_member", &none).with_capabilities(&admin), &[]);
+        assert_eq!(out.findings[0].verdict, Verdict::Alert);
+
+        // Capabilities are static, so unconditional capability denies hide tools.
+        let del = [Capability::DataDeletion];
+        assert_eq!(b.tool_status("a", &[], "prod-db", "drop_table", &del), (true, false));
+        assert_eq!(b.tool_status("a", &[], "prod-db", "drop_table", &[]), (false, false));
+
+        let load = |y: &str| RuleBook::load(&[("f.yaml".into(), y)]);
+        let err = load("rules:\n  - id: a\n    match: { capability: paymnet }\n").unwrap_err().to_string();
+        assert!(err.contains("unknown capability `paymnet`"), "{err}");
+        assert!(load("rules:\n  - id: a\n    match: { capability: \"zz*\" }\n").is_err());
+        assert!(load("rules:\n  - id: a\n    match: { capability: [] }\n").is_err());
+        let w = load("rules:\n  - id: a\n    match: { kind: llm, capability: payment }\n").unwrap();
+        assert_eq!(w.warnings().len(), 1, "{:?}", w.warnings());
     }
 
     #[test]

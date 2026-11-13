@@ -5,6 +5,10 @@
 # `nandi approvals approve <id>`) or the approval times out.
 #
 # `tool` may be `tool` or `server/tool`; both parts accept `*` and `?` globs.
+# `capability` matches what a tool can do, whatever it is called: read_only,
+# network_fetch, file_write, file_delete, data_modification, data_deletion,
+# command_execution, external_send, payment, credential_access,
+# identity_admin (see docs/policy/capabilities.md).
 # Argument matchers use dotted paths and operators such as eq, in, glob,
 # regex, prefix, contains, gt, gte, lt, lte, max_len and exists.
 
@@ -27,12 +31,10 @@ rules:
     action: ask
     severity: high
 
-  - id: large-payment
-    description: Payments above 1000 need a human
+  - id: payments-need-approval
+    description: Tools that move money (payments, transfers, refunds, payouts) need a human
     match:
-      tool: "*pay*"
-      args:
-        amount: { gt: 1000 }
+      capability: payment
     action: ask
     severity: high
 

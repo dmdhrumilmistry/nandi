@@ -29,7 +29,7 @@ use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader
 use tokio::sync::mpsc;
 
 use nandi_core::util::new_id;
-use nandi_core::{Event, EventKind, Source, ToolCall, ToolList, ToolResult};
+use nandi_core::{Event, EventKind, ServerSpec, Source, ToolCall, ToolList, ToolResult};
 use nandi_proto::mcp::{self, IdTracker, JsonRpc};
 
 use crate::App;
@@ -101,6 +101,9 @@ pub async fn run(app: Arc<App>, opts: WrapOptions) -> anyhow::Result<i32> {
     let server_in = child.stdin.take().ok_or_else(|| anyhow::anyhow!("child stdin unavailable"))?;
     let server_out = child.stdout.take().ok_or_else(|| anyhow::anyhow!("child stdout unavailable"))?;
     let ctx = WrapContext::from_options(&opts);
+    // Register the launch command so it is checked against
+    // `servers.approved` and, for a local program, its hash is pinned.
+    app.engine.register_server(&ctx.server, ServerSpec::Stdio { command: program.clone(), args: args.to_vec() });
     tracing::info!(server = %ctx.server, agent = %ctx.agent, session = %ctx.session, "wrapping stdio MCP server");
 
     let pumping = pump(app, ctx, ThreadStdin::spawn(), tokio::io::stdout(), server_in, server_out);

@@ -2,7 +2,7 @@
 
 use serde_json::{Value, json};
 
-use nandi_core::config::{Mode, PlanMode, Spotlight};
+use nandi_core::config::{self, Mode, PlanMode, Spotlight};
 use nandi_core::*;
 use nandi_policy::PolicySet;
 
@@ -394,4 +394,83 @@ fn local_tools_may_reach_localhost_but_not_metadata() {
     assert_eq!(d.effective(), Verdict::Deny);
     let d = e.evaluate(&call("web", "fetch_url", json!({"url": "http://localhost:3000/health"})), &[]);
     assert_eq!(d.effective(), Verdict::Deny);
+}
+
+#[test]
+fn capability_rules_apply_to_listed_and_unlisted_tools() {
+    let yaml = "rules:\n  - id: payments-need-approval\n    match: { capability: payment }\n    action: ask\n";
+    let e = engine_with(enforce(), yaml);
+    let d = e.evaluate(&list("shop", &[("create_refund", "Refund a charge"), ("list_orders", "List orders")]), &[]);
+    assert!(d.findings.is_empty(), "having a capability is not a finding: {:?}", d.findings);
+    let d = e.evaluate(&call("shop", "create_refund", json!({"charge": "ch_1"})), &[]);
+    assert_eq!(d.effective(), Verdict::Ask);
+    assert_eq!(rules(&d), ["policy.payments-need-approval"]);
+    assert!(e.evaluate(&call("shop", "list_orders", json!({})), &[]).findings.is_empty());
+    // A tool known only by name (hooks, local tools) is classified by name.
+    let d = e.evaluate(&call("local", "make_payment", json!({"amount": 5})), &[]);
+    assert_eq!(rules(&d), ["policy.payments-need-approval"]);
+
+    let risk = e.tool_risk("shop", "create_refund").unwrap();
+    assert_eq!(risk.capabilities, [Capability::Payment]);
+    assert_eq!(risk.score, 40);
+    let servers = e.servers();
+    let shop = servers.iter().find(|s| s.name == "shop").unwrap();
+    assert_eq!(shop.level, RiskLevel::Medium);
+    assert!(servers.iter().any(|s| s.name == "local"));
+}
+
+#[test]
+fn unapproved_server_is_quarantined() {
+    let mut cfg = enforce();
+    cfg.servers.on_unknown = Verdict::Deny;
+    cfg.servers.approved =
+        vec![config::ApprovedServer { name: "github".into(), package: None, url: None, sha256: None }];
+    let e = engine_with(cfg, "");
+    let d = e.evaluate(&list("shady", &[("read_notes", "Read notes")]), &[]);
+    assert_eq!(rules(&d), ["server.unapproved"]);
+    assert_eq!(d.rewrite, Some(json!({"keep": []})));
+    assert_eq!(d.verdict, Verdict::Alert, "listings are filtered, not blocked");
+    let d = e.evaluate(&call("shady", "read_notes", json!({})), &[]);
+    assert_eq!(d.effective(), Verdict::Deny);
+    let d = e.evaluate(&list("github", &[("list_issues", "List issues")]), &[]);
+    assert!(d.findings.is_empty(), "{:?}", d.findings);
+    assert!(e.servers().iter().any(|s| s.name == "shady" && s.quarantined));
+}
+
+#[test]
+fn approved_package_change_is_denied() {
+    let mut cfg = enforce();
+    cfg.servers.approved = vec![config::ApprovedServer {
+        name: "github".into(),
+        package: Some("npm:@modelcontextprotocol/server-github@2025.4.8".into()),
+        url: None,
+        sha256: None,
+    }];
+    let e = engine_with(cfg, "");
+    let spec = |v: &str| ServerSpec::Stdio {
+        command: "npx".into(),
+        args: vec!["-y".into(), format!("@modelcontextprotocol/server-github@{v}")],
+    };
+    e.register_server("github", spec("2025.4.8"));
+    assert!(e.evaluate(&list("github", &[("list_issues", "List issues")]), &[]).findings.is_empty());
+    assert_eq!(e.evaluate(&call("github", "list_issues", json!({})), &[]).effective(), Verdict::Allow);
+    e.register_server("github", spec("2025.9.9"));
+    let d = e.evaluate(&call("github", "list_issues", json!({})), &[]);
+    assert_eq!(rules(&d), ["server.spec-mismatch"]);
+    assert_eq!(d.effective(), Verdict::Deny);
+}
+
+#[test]
+fn unpinned_server_alerts_on_listing_only() {
+    let e = engine_with(enforce(), "");
+    e.register_server(
+        "fs",
+        ServerSpec::Stdio {
+            command: "npx".into(),
+            args: vec!["-y".into(), "@modelcontextprotocol/server-filesystem".into()],
+        },
+    );
+    let d = e.evaluate(&list("fs", &[("read_file", "Read a file")]), &[]);
+    assert_eq!(rules(&d), ["server.unpinned"]);
+    assert!(e.evaluate(&call("fs", "read_file", json!({"path": "README.md"})), &[]).findings.is_empty());
 }

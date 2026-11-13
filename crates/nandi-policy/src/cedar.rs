@@ -2,7 +2,9 @@
 //!
 //! Entities: the principal is `Agent::"<agent>"` with parents
 //! `Group::"<group>"`; the resource is `Tool::"<server>/<tool>"` (parent
-//! `Server::"<server>"`), `Server::"<server>"`, `Model::"<provider>/<model>"`
+//! `Server::"<server>"`, attributes `name`, `server` and `capabilities`, a
+//! set of capability names such as `"payment"`), `Server::"<server>"`,
+//! `Model::"<provider>/<model>"`
 //! or `Peer::"<peer>"`; the action is `Action::"call_tool"`,
 //! `Action::"list_tools"`, `Action::"llm_request"` or `Action::"a2a_send"`.
 //! Entities from an optional user file are merged in (user attributes win,
@@ -24,7 +26,7 @@ use cedar_policy::{
 };
 use serde_json::{Map, Value, json};
 
-use nandi_core::{Category, Error, Finding, Result, Severity, Verdict};
+use nandi_core::{Capability, Category, Error, Finding, Result, Severity, Verdict};
 
 use crate::{Action, Outcome, PolicyInput, SessionFacts};
 
@@ -245,7 +247,13 @@ impl CedarEngine {
     }
 
     /// Generated entities and request uids for an action.
-    fn generate(&self, agent: &str, groups: &[String], action: &Action<'_>) -> (Vec<GenEntity>, EntityUid, EntityUid) {
+    fn generate(
+        &self,
+        agent: &str,
+        groups: &[String],
+        action: &Action<'_>,
+        caps: &[Capability],
+    ) -> (Vec<GenEntity>, EntityUid, EntityUid) {
         let t = &self.types;
         let principal = GenEntity {
             uid: uid(&t.agent, agent),
@@ -257,7 +265,11 @@ impl CedarEngine {
                 "call_tool",
                 GenEntity {
                     uid: uid(&t.tool, &format!("{server}/{tool}")),
-                    attrs: HashMap::from([("name".to_owned(), s(tool)), ("server".to_owned(), s(server))]),
+                    attrs: HashMap::from([
+                        ("name".to_owned(), s(tool)),
+                        ("server".to_owned(), s(server)),
+                        ("capabilities".to_owned(), RestrictedExpression::new_set(caps.iter().map(|c| s(c.as_str())))),
+                    ]),
                     parents: HashSet::from([uid(&t.server, server)]),
                 },
             ),
@@ -296,9 +308,10 @@ impl CedarEngine {
         agent: &str,
         groups: &[String],
         action: &Action<'_>,
+        caps: &[Capability],
         context: Value,
     ) -> std::result::Result<(Request, Entities), String> {
-        let (generated, action_uid, resource_uid) = self.generate(agent, groups, action);
+        let (generated, action_uid, resource_uid) = self.generate(agent, groups, action, caps);
         let principal_uid = generated[0].uid.clone();
         let mut list = Vec::with_capacity(generated.len());
         for g in generated {
@@ -334,7 +347,8 @@ impl CedarEngine {
             _ => (None, None),
         };
         let ctx = context_json(&input.session, args, method);
-        let (request, entities) = match self.request(input.agent, input.groups, &input.action, ctx) {
+        let (request, entities) = match self.request(input.agent, input.groups, &input.action, input.capabilities, ctx)
+        {
             Ok(r) => r,
             Err(e) => {
                 out.findings.push(error_finding(format!("could not build Cedar request: {e}")));
@@ -378,11 +392,18 @@ impl CedarEngine {
     }
 
     /// Context-free view of a tool: `(always_denied, allow_possible)`.
-    pub(crate) fn tool_status(&self, agent: &str, groups: &[String], server: &str, tool: &str) -> (bool, bool) {
+    pub(crate) fn tool_status(
+        &self,
+        agent: &str,
+        groups: &[String],
+        server: &str,
+        tool: &str,
+        caps: &[Capability],
+    ) -> (bool, bool) {
         let args = Value::Object(Map::new());
         let action = Action::CallTool { server, tool, args: &args };
         let ctx = context_json(&SessionFacts::default(), None, None);
-        let Ok((request, entities)) = self.request(agent, groups, &action, ctx) else {
+        let Ok((request, entities)) = self.request(agent, groups, &action, caps, ctx) else {
             return (false, true);
         };
         let resp = Authorizer::new().is_authorized(&request, &self.visibility, &entities);
@@ -408,7 +429,11 @@ mod tests {
     }
 
     fn eval(e: &CedarEngine, agent: &str, groups: &[String], action: Action<'_>) -> Outcome {
-        let input = PolicyInput { agent, groups, session: SessionFacts::default(), action };
+        eval_caps(e, agent, groups, action, &[])
+    }
+
+    fn eval_caps(e: &CedarEngine, agent: &str, groups: &[String], action: Action<'_>, caps: &[Capability]) -> Outcome {
+        let input = PolicyInput::new(agent, groups, SessionFacts::default(), action).with_capabilities(caps);
         let mut out = Outcome::default();
         e.evaluate(&input, &mut out);
         out
@@ -463,12 +488,12 @@ permit(principal, action == Action::"a2a_send", resource == Peer::"partner")
         assert_eq!(out.findings[0].rule, "cedar.policy0");
         assert_eq!(out.findings[0].message, "denied by Cedar policy policy0");
 
-        let input = PolicyInput {
-            agent: "a",
-            groups: &[],
-            session: SessionFacts { tainted: true, risk: 0.6, calls: 3 },
-            action: Action::LlmRequest { provider: "openai", model: "gpt-4o" },
-        };
+        let input = PolicyInput::new(
+            "a",
+            &[],
+            SessionFacts { tainted: true, risk: 0.6, calls: 3 },
+            Action::LlmRequest { provider: "openai", model: "gpt-4o" },
+        );
         let mut out = Outcome::default();
         e.evaluate(&input, &mut out);
         assert_eq!(out.findings[0].rule, "cedar.policy1");
@@ -546,6 +571,39 @@ forbid(principal, action, resource == Model::"openai/gpt-4o");
     }
 
     #[test]
+    fn capabilities_attribute() {
+        let e = engine(
+            r#"
+permit(principal, action, resource);
+@id("payments-need-approval")
+@action("ask")
+forbid(principal, action == Action::"call_tool", resource)
+  when { resource.capabilities.contains("payment") };
+@id("no-shell-for-interns")
+forbid(principal == Agent::"intern", action == Action::"call_tool", resource)
+  when { resource.capabilities.containsAny(["command_execution", "credential_access"]) };
+"#,
+            None,
+        );
+        let args = json!({"amount": 5});
+        let call = || Action::CallTool { server: "stripe", tool: "create_payout", args: &args };
+        let out = eval_caps(&e, "a", &[], call(), &[Capability::Payment]);
+        assert!(out.permitted);
+        assert_eq!(out.findings.len(), 1);
+        assert_eq!(out.findings[0].rule, "cedar.payments-need-approval");
+        assert_eq!(out.findings[0].verdict, Verdict::Ask);
+        let out = eval_caps(&e, "a", &[], call(), &[Capability::ReadOnly]);
+        assert!(out.permitted && out.findings.is_empty());
+        let out = eval(&e, "a", &[], call());
+        assert!(out.findings.is_empty(), "an empty set never contains payment");
+
+        let shell = [Capability::CommandExecution];
+        assert_eq!(e.tool_status("intern", &[], "local", "Bash", &shell), (true, false));
+        assert_eq!(e.tool_status("intern", &[], "local", "Read", &[Capability::ReadOnly]), (false, true));
+        assert_eq!(e.tool_status("dev", &[], "local", "Bash", &shell), (false, true));
+    }
+
+    #[test]
     fn load_errors() {
         let load = |p: &str| CedarEngine::load(&[("bad.cedar".into(), p)], None);
         let err = load("permit(principal, action, resource").unwrap_err().to_string();
@@ -595,11 +653,11 @@ forbid(principal, action, resource) when { context.args.force == true };
             None,
         );
         let dev = vec!["dev".to_string()];
-        assert_eq!(e.tool_status("x", &dev, "github", "create_issue"), (false, true));
-        assert_eq!(e.tool_status("x", &[], "github", "create_issue"), (false, false));
-        assert_eq!(e.tool_status("x", &[], "fs", "read"), (false, true));
-        assert_eq!(e.tool_status("intern", &dev, "github", "delete_repo"), (true, false));
-        assert_eq!(e.tool_status("x", &dev, "github", "delete_repo"), (false, true));
-        assert_eq!(e.tool_status("x", &dev, "github", "merge"), (false, true));
+        assert_eq!(e.tool_status("x", &dev, "github", "create_issue", &[]), (false, true));
+        assert_eq!(e.tool_status("x", &[], "github", "create_issue", &[]), (false, false));
+        assert_eq!(e.tool_status("x", &[], "fs", "read", &[]), (false, true));
+        assert_eq!(e.tool_status("intern", &dev, "github", "delete_repo", &[]), (true, false));
+        assert_eq!(e.tool_status("x", &dev, "github", "delete_repo", &[]), (false, true));
+        assert_eq!(e.tool_status("x", &dev, "github", "merge", &[]), (false, true));
     }
 }
