@@ -131,7 +131,8 @@ ours, so treat it as a regression suite rather than a benchmark; see
 
 - [Getting started](docs/getting-started.md) and [how it works](docs/how-it-works.md)
 - Guides: [proxy](docs/guides/proxy.md), [MCP servers](docs/guides/mcp.md),
-  [coding agents](docs/guides/coding-agents.md), [host sensor](docs/guides/host-sensor.md),
+  [coding agents](docs/guides/coding-agents.md), [AI footprint](docs/guides/discovery.md),
+  [host sensor](docs/guides/host-sensor.md),
   [ML classifier](docs/guides/ml-classifier.md)
 - Policy: [rules](docs/policy/rules.md), [Cedar](docs/policy/cedar.md),
   [data flow](docs/policy/data-flow.md), [detection](docs/policy/detection.md),

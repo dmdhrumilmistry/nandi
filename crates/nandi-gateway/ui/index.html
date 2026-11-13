@@ -245,6 +245,29 @@ table.tv td.n, table.tv th.n { text-align: right; font-variant-numeric: tabular-
 .empty-art circle { fill: var(--line-2); stroke: none; }
 .empty-art circle.held { fill: var(--v-ask); }
 .empty-art circle.hollow { fill: var(--surface); stroke: var(--line-2); stroke-width: 1.4; }
+/* AI footprint */
+.footprint { margin-top: 16px; }
+.host { border-bottom: 1px solid var(--line); }
+.host:last-child { border-bottom: 0; }
+.host-head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 16px; padding: 12px 14px; }
+.host-head .name { font-weight: 640; }
+.host-head .cov { display: flex; align-items: center; gap: 10px; min-width: 300px; flex: 1; max-width: 460px; }
+.host-head .cov .meter { flex: 1; }
+.host-head .cov-label { white-space: nowrap; color: var(--ink-2); }
+.hooks { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip.plain { text-transform: none; }
+.s-critical, .s-high { background: var(--deny-bg); color: var(--deny-fg); }
+.s-critical svg, .s-high svg { color: var(--crit); }
+.s-medium { background: var(--ask-bg); color: var(--ask-fg); }
+.s-medium svg { color: var(--serious); }
+.s-low { background: var(--alert-bg); color: var(--alert-fg); }
+.s-low svg { color: var(--warn); }
+.s-info { background: var(--redact-bg); color: var(--redact-fg); }
+.c-sev { width: 104px; } .c-item { width: 30%; } .c-fix { width: 170px; }
+.fp-item .kind { color: var(--muted); font-size: 12px; margin-right: 6px; }
+.fp-fix { color: var(--accent); font-weight: 550; }
+.detail .fix-note { margin: 8px 0 0; color: var(--ink-2); }
+.host .more { padding: 8px 14px; color: var(--muted); font-size: 12px; border-top: 1px solid var(--line); }
 
 @media (max-width: 1180px) {
   .kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -359,6 +382,10 @@ table.tv td.n, table.tv th.n { text-align: right; font-variant-numeric: tabular-
       <div id="usage"></div>
     </section>
   </div>
+  <section class="card footprint" aria-labelledby="h-foot">
+    <header><h2 id="h-foot">AI footprint</h2><span class="count" id="foot-count"></span></header>
+    <div id="footprint"></div>
+  </section>
 </div>
 <div id="view-map" role="tabpanel" aria-labelledby="tab-map" hidden>
   <div class="map-filters" role="group" aria-label="Time range">
@@ -779,7 +806,145 @@ async function refreshStatus() {
 function settle(p) { return p.catch(() => {}); }
 function refreshFast() { return settle(refreshApprovals()); }
 function refreshSlow() {
-  return Promise.all([refreshKilled(), refreshSessions(), refreshPins(), refreshUsage(), refreshStatus()].map(settle));
+  return Promise.all([refreshKilled(), refreshSessions(), refreshPins(), refreshUsage(), refreshStatus(), refreshFootprint()].map(settle));
+}
+
+// ----- AI footprint -------------------------------------------------------------
+
+const SEV = { info: 0, low: 1, medium: 2, high: 3, critical: 4 };
+const ITEM_KIND = { client: "Client", mcp_server: "MCP server", hook: "Hook", skill: "Skill", plugin: "Plugin", extension: "Extension" };
+const FIX = { wrap: "Wrap with nandi", route: "Route through nandi", hook: "Install nandi hook" };
+
+function sevChip(sev) {
+  return el("span", { class: "chip s-" + sev }, icon(SEV[sev] >= 3 ? "deny" : "alert"), sev);
+}
+
+function maxSev(findings) {
+  return findings.reduce((m, f) => (SEV[f.severity] > SEV[m] ? f.severity : m), "info");
+}
+
+function coverageBar(cov) {
+  const total = cov.servers_total || 0, via = cov.servers_via_nandi || 0;
+  const pct = total ? Math.round((via / total) * 100) : 100;
+  const color = pct >= 90 ? "var(--good)" : pct >= 50 ? "var(--warn)" : "var(--crit)";
+  return el("div", { class: "cov" },
+    el("span", { class: "cov-label" }, total ? "MCP servers through nandi: " + via + " of " + total : "No MCP servers"),
+    total ? el("div", { class: "meter", role: "meter", "aria-valuemin": "0", "aria-valuemax": "100", "aria-valuenow": String(pct),
+      "aria-label": pct + " percent of MCP servers through nandi", style: "--fill:" + color },
+      el("div", { class: "track" }, el("div", { class: "fill", style: "width:" + Math.max(pct, 2) + "%" })),
+      el("span", { class: "pct" }, pct + "%")) : null);
+}
+
+function suggestionFor(inv, it) {
+  const list = (inv.coverage && inv.coverage.suggestions) || [];
+  if (it.type === "client") return list.find((s) => s.kind === "hook" && s.client === it.client);
+  if (it.type !== "mcp_server") return null;
+  return list.find((s) => s.kind !== "hook" && s.client === it.client && s.target === it.name && s.scope === it.scope);
+}
+
+function fixLabel(it, sugg) {
+  if (sugg) return FIX[sugg.kind] || "See suggestion";
+  const rules = it.findings.map((f) => f.rule);
+  if (rules.includes("config.plaintext-secret")) return "Move secret out of config";
+  if (it.type === "skill") return "Review skill";
+  if (it.type === "hook") return "Review hook";
+  if (rules.includes("server.remote-http")) return "Use https";
+  return "Review";
+}
+
+function itemLabel(it, names) {
+  const client = names[it.client] || it.client;
+  let what = "";
+  switch (it.type) {
+    case "client": what = it.name; break;
+    case "hook": what = it.event + "  ·  " + it.command; break;
+    case "extension": what = it.id; break;
+    default: what = it.name;
+  }
+  return el("div", { class: "fp-item", title: client + " · " + what + (it.scope ? " · " + it.scope : "") },
+    el("span", { class: "kind" }, ITEM_KIND[it.type] || it.type), it.type === "client" ? what : client + " / " + what,
+    it.scope && it.scope !== "user" ? el("span", { class: "muted" }, "  " + it.scope) : null);
+}
+
+function footprintDetail(it, sugg) {
+  const box = el("td", { colspan: "4" });
+  const list = el("div", { class: "findings" });
+  for (const f of it.findings) {
+    list.append(el("div", { class: "finding" },
+      el("span", { class: "sev " + f.severity }, f.severity),
+      el("div", {}, el("span", { class: "rule" }, f.rule), "  ", f.message, f.evidence ? el("div", { class: "ev" }, f.evidence) : null)));
+  }
+  box.append(list);
+  const where = it.source || it.path;
+  if (where) box.append(el("div", { class: "muted mono" }, where));
+  if (sugg) box.append(el("p", { class: "fix-note" }, sugg.message), el("pre", {}, sugg.snippet));
+  return el("tr", { class: "detail" }, box);
+}
+
+function footprintRow(inv, it, names) {
+  const sugg = suggestionFor(inv, it);
+  const top = it.findings.slice().sort((a, b) => SEV[b.severity] - SEV[a.severity])[0];
+  const row = el("tr", { class: "row", tabindex: "0", "aria-expanded": "false" },
+    el("td", {}, sevChip(maxSev(it.findings))),
+    el("td", {}, itemLabel(it, names)),
+    el("td", { title: it.findings.map((f) => f.rule).join(", ") }, el("span", { class: "mono-chip" }, top.rule), top.message,
+      it.findings.length > 1 ? el("span", { class: "muted" }, "  +" + (it.findings.length - 1)) : null),
+    el("td", { class: "fp-fix" }, fixLabel(it, sugg)));
+  const toggle = () => {
+    const next = row.nextElementSibling;
+    if (next && next.classList.contains("detail")) { next.remove(); row.setAttribute("aria-expanded", "false"); return; }
+    row.after(footprintDetail(it, sugg));
+    row.setAttribute("aria-expanded", "true");
+  };
+  row.addEventListener("click", toggle);
+  row.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); } });
+  return row;
+}
+
+function hostBlock(inv) {
+  const cov = inv.coverage || {};
+  const names = {};
+  for (const c of cov.clients || []) names[c.client] = c.name;
+  const hooks = (cov.clients || []).filter((c) => c.nandi_hook !== undefined && c.nandi_hook !== null).map((c) =>
+    c.nandi_hook
+      ? el("span", { class: "chip plain v-allow", title: "nandi hook installed" }, icon("allow"), c.name + " hook")
+      : el("span", { class: "chip plain v-alert", title: "no nandi hook: built-in tools bypass nandi" }, icon("alert"), c.name + ": no hook"));
+  const items = (inv.items || []).filter((it) => (it.findings || []).length);
+  items.sort((a, b) => SEV[maxSev(b.findings)] - SEV[maxSev(a.findings)]);
+  const shown = items.slice(0, 100);
+  const block = el("div", { class: "host" },
+    el("div", { class: "host-head" },
+      el("span", { class: "name" }, inv.host),
+      el("span", { class: "muted", title: new Date(inv.scanned_at_ms).toLocaleString() + " · nandi " + inv.nandi_version },
+        "scanned " + ago(inv.scanned_at_ms)),
+      coverageBar(cov),
+      hooks.length ? el("div", { class: "hooks" }, ...hooks) : null,
+      (inv.warnings || []).length ? el("span", { class: "muted", title: inv.warnings.join("\n") },
+        inv.warnings.length + " unreadable file" + (inv.warnings.length > 1 ? "s" : "")) : null));
+  if (!shown.length) {
+    block.append(el("div", { class: "empty" }, "Nothing needs attention on this machine."));
+    return block;
+  }
+  block.append(el("table", {},
+    el("colgroup", {}, el("col", { class: "c-sev" }), el("col", { class: "c-item" }), el("col", {}), el("col", { class: "c-fix" })),
+    el("thead", {}, el("tr", {}, el("th", { scope: "col" }, "Severity"), el("th", { scope: "col" }, "Item"),
+      el("th", { scope: "col" }, "Issue"), el("th", { scope: "col" }, "Fix"))),
+    el("tbody", {}, ...shown.map((it) => footprintRow(inv, it, names)))));
+  if (items.length > shown.length) block.append(el("div", { class: "more" }, (items.length - shown.length) + " more items need attention. Run nandi discover on the machine for the full list."));
+  return block;
+}
+
+async function refreshFootprint() {
+  const list = await api("/v1/inventory");
+  $("foot-count").textContent = list.length ? list.length + (list.length === 1 ? " machine" : " machines") : "";
+  if (!list.length) {
+    fill("footprint", [el("div", { class: "empty" }, "No machine has reported yet. Run ", el("code", { class: "mono" }, "nandi discover --report"),
+      " on a machine to list its AI agents, MCP servers, hooks and skills here and see which of them bypass nandi.")], "");
+    return;
+  }
+  // Keep rows a person has expanded open across refreshes.
+  if ($("footprint").querySelector('[aria-expanded="true"]')) return;
+  fill("footprint", list.map(hostBlock), "");
 }
 
 // ----- wiring -----------------------------------------------------------------

@@ -33,6 +33,7 @@ NAV = [
         ("guides/proxy.md", "Proxy: LLM, MCP, A2A"),
         ("guides/mcp.md", "MCP servers"),
         ("guides/coding-agents.md", "Coding agents"),
+        ("guides/discovery.md", "AI footprint and coverage"),
         ("guides/host-sensor.md", "Host sensor"),
         ("guides/ml-classifier.md", "ML classifier"),
     ]),

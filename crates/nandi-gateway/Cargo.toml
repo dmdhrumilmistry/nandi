@@ -16,6 +16,7 @@ nandi-detect.workspace = true
 nandi-audit.workspace = true
 nandi-identity.workspace = true
 nandi-proto.workspace = true
+nandi-discover.workspace = true
 anyhow.workspace = true
 serde.workspace = true
 serde_json.workspace = true

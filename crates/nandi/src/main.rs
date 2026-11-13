@@ -1,6 +1,7 @@
 //! The `nandi` command line: gateway, stdio wrapper, hook client, policy
 //! tooling, audit tooling and admin client.
 
+mod discover;
 mod init;
 mod offline;
 mod remote;
@@ -159,6 +160,39 @@ enum Cmd {
         min_verdict: Option<String>,
         #[command(flatten)]
         admin: AdminOpts,
+    },
+    /// Inventory the AI agents, MCP servers, hooks, skills and plugins on
+    /// this machine and show which of them bypass nandi.
+    Discover {
+        /// Home directory to scan (default: $HOME).
+        #[arg(long, value_name = "DIR")]
+        home: Option<PathBuf>,
+        /// Project directory to scan; repeatable (default: the current directory).
+        #[arg(long = "project", value_name = "DIR")]
+        projects: Vec<PathBuf>,
+        /// Print the inventory as JSON.
+        #[arg(long)]
+        json: bool,
+        /// Print the configuration changes that bring everything under nandi.
+        #[arg(long)]
+        suggest: bool,
+        /// nandi config path used in suggested commands (default: --config, made absolute).
+        #[arg(long, value_name = "PATH")]
+        nandi_config: Option<PathBuf>,
+        /// nandi proxy base URL; repeatable (default: http://127.0.0.1:8787 and
+        /// http://localhost:8787, plus `listen.proxy` from the config).
+        #[arg(long = "proxy-url", value_name = "URL")]
+        proxy_urls: Vec<String>,
+        /// Send the inventory to the admin API (`POST /v1/inventory`) for the dashboard.
+        #[arg(long)]
+        report: bool,
+        /// Admin API base URL (default: `admin.listen` from the config, else
+        /// http://127.0.0.1:8788).
+        #[arg(long, value_name = "URL")]
+        admin: Option<String>,
+        /// Admin bearer token (default: `admin.token` from the config).
+        #[arg(long, env = "NANDI_ADMIN_TOKEN", hide_env_values = true)]
+        token: Option<String>,
     },
     /// Write a starter nandi.yaml and policies.
     Init {
@@ -649,6 +683,10 @@ async fn dispatch(cli: Cli) -> anyhow::Result<i32> {
                 _ = termination() => {}
             }
             Ok(0)
+        }
+        Cmd::Discover { home, projects, json, suggest, nandi_config, proxy_urls, report, admin, token } => {
+            let args = discover::Args { home, projects, json, suggest, nandi_config, proxy_urls, report, admin, token };
+            discover::run(args, config).await
         }
         Cmd::Init { dir, force } => {
             init::run(&dir, force)?;

@@ -73,6 +73,28 @@ Options:
   -h, --help                   Print help
 ```
 
+### nandi discover
+
+```text
+Inventory the AI agents, MCP servers, hooks, skills and plugins on this machine and show which of them bypass nandi
+
+Usage: nandi discover [OPTIONS]
+
+Options:
+  -c, --config <CONFIG>        Configuration file [env: NANDI_CONFIG=] [default: nandi.yaml]
+      --home <DIR>             Home directory to scan (default: $HOME)
+      --log-level <LOG_LEVEL>  Log filter (error, warn, info, debug, trace or a tracing directive) [env: NANDI_LOG=] [default: info]
+      --project <DIR>          Project directory to scan; repeatable (default: the current directory)
+      --json                   Print the inventory as JSON
+      --suggest                Print the configuration changes that bring everything under nandi
+      --nandi-config <PATH>    nandi config path used in suggested commands (default: --config, made absolute)
+      --proxy-url <URL>        nandi proxy base URL; repeatable (default: http://127.0.0.1:8787 and http://localhost:8787, plus `listen.proxy` from the config)
+      --report                 Send the inventory to the admin API (`POST /v1/inventory`) for the dashboard
+      --admin <URL>            Admin API base URL (default: `admin.listen` from the config, else http://127.0.0.1:8788)
+      --token <TOKEN>          Admin bearer token (default: `admin.token` from the config) [env: NANDI_ADMIN_TOKEN]
+  -h, --help                   Print help
+```
+
 ## Policy and evaluation
 
 ### nandi policy validate

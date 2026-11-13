@@ -1,0 +1,21 @@
+[package]
+name = "nandi-discover"
+description = "AI footprint inventory for nandi: agents, MCP servers, hooks, skills and plugins on a machine, and which of them bypass nandi"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+nandi-core.workspace = true
+nandi-detect.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde-saphyr.workspace = true
+regex.workspace = true
+toml = { version = "1", default-features = false, features = ["std", "parse", "serde"] }
+
+[dev-dependencies]
+tempfile = "3"

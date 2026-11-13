@@ -18,7 +18,7 @@ use std::sync::{Arc, OnceLock};
 
 use axum::Router;
 use axum::body::Bytes;
-use axum::extract::{ConnectInfo, Path, Query as QueryParams, Request, State};
+use axum::extract::{ConnectInfo, DefaultBodyLimit, Path, Query as QueryParams, Request, State};
 use axum::http::{HeaderMap, HeaderValue, Method, StatusCode, header};
 use axum::middleware::{self, Next};
 use axum::response::sse::{Event as SseEvent, KeepAlive, Sse};
@@ -33,10 +33,16 @@ use nandi_audit::Query;
 use nandi_core::Verdict;
 use nandi_core::config::resolve_secret;
 use nandi_core::util::sha256_hex;
+use nandi_discover::Inventory;
 
 use crate::App;
 use crate::hook::{self, HookFormat};
 use crate::recorder::LiveEvent;
+
+/// Largest inventory accepted by `POST /v1/inventory`.
+const MAX_INVENTORY_BYTES: usize = 2 << 20;
+/// State store prefix of reported inventories, one key per host.
+const INVENTORY_PREFIX: &str = "inventory/";
 
 /// Default and maximum page size of `GET /v1/events`.
 const DEFAULT_LIMIT: usize = 100;
@@ -161,6 +167,10 @@ fn build(app: Arc<App>, shutdown: watch::Receiver<bool>) -> Router {
         .route("/v1/audit/verify", get(audit_verify))
         .route("/v1/hook/{format}", post(hook_endpoint))
         .route("/v1/graph", get(graph))
+        .route(
+            "/v1/inventory",
+            get(inventory_list).post(inventory_report).layer(DefaultBodyLimit::max(MAX_INVENTORY_BYTES)),
+        )
         .layer(middleware::from_fn_with_state(state.clone(), guard))
         .with_state(state)
 }
@@ -638,6 +648,42 @@ async fn hook_endpoint(State(st): State<AdminState>, Path(format): Path<String>,
     ok_json(serde_json::to_value(crate::hook::HookWire::from(r)).unwrap_or_default())
 }
 
+// ----- AI footprint inventory --------------------------------------------------------
+
+/// Store the latest inventory of a host (`nandi discover --report`).
+async fn inventory_report(State(st): State<AdminState>, body: Bytes) -> ApiResult {
+    let mut inv: Inventory =
+        serde_json::from_slice(&body).map_err(|e| ApiError::bad_request(format!("invalid inventory: {e}")))?;
+    let host = inv.host.trim().to_string();
+    if host.is_empty() || host.len() > 255 || host.chars().any(char::is_control) {
+        return Err(ApiError::bad_request("inventory host must be 1 to 255 printable characters"));
+    }
+    inv.host = host.clone();
+    let bytes = serde_json::to_vec(&inv).map_err(ApiError::internal)?;
+    let store = st.app.engine.store().clone();
+    let key = format!("{INVENTORY_PREFIX}{host}");
+    tokio::task::spawn_blocking(move || store.put(&key, &bytes)).await.map_err(ApiError::internal)?;
+    tracing::info!(host = %host, items = inv.items.len(), "inventory reported");
+    ok_json(json!({ "ok": true, "host": host, "items": inv.items.len() }))
+}
+
+/// Latest inventory of every reporting host, newest scan first.
+async fn inventory_list(State(st): State<AdminState>) -> ApiResult {
+    let store = st.app.engine.store().clone();
+    let mut list: Vec<Inventory> = tokio::task::spawn_blocking(move || {
+        store
+            .keys(INVENTORY_PREFIX)
+            .into_iter()
+            .filter_map(|k| store.get(&k))
+            .filter_map(|v| serde_json::from_slice(&v).ok())
+            .collect()
+    })
+    .await
+    .map_err(ApiError::internal)?;
+    list.sort_by_key(|a| std::cmp::Reverse(a.scanned_at_ms));
+    ok_json(list)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -883,6 +929,53 @@ mod tests {
         let (s, v) = post_json(&r, "/v1/hook/generic", Some(json!({}))).await;
         assert_eq!(s, StatusCode::OK);
         assert!(v.get("exit_code").is_some());
+    }
+
+    #[tokio::test]
+    async fn inventory_report_and_list() {
+        let app = ephemeral(Config::default());
+        let r = router(app.clone());
+        assert_eq!(get_json(&r, "/v1/inventory").await.1, json!([]));
+        let inventory = |host: &str, at: u64| {
+            json!({
+                "host": host,
+                "scanned_at_ms": at,
+                "nandi_version": "0.1.0",
+                "items": [{
+                    "type": "mcp_server", "client": "cursor", "scope": "user", "name": "github",
+                    "source": "~/.cursor/mcp.json", "transport": "stdio", "command": "npx",
+                    "args": ["-y", "server-github"], "env": ["GITHUB_TOKEN"], "via_nandi": null,
+                    "findings": [{ "rule": "coverage.unwrapped-server", "category": "policy", "severity": "medium",
+                                   "verdict": "alert", "message": "MCP server github bypasses nandi" }],
+                    "unknown_field": "dropped"
+                }],
+                "coverage": { "servers_total": 1, "servers_via_nandi": 0, "servers_wrapped": 0, "servers_routed": 0,
+                              "hook_clients": 0, "hooks_installed": 0 }
+            })
+        };
+        let (s, v) = post_json(&r, "/v1/inventory", Some(inventory("laptop-a", 1_000))).await;
+        assert_eq!(s, StatusCode::OK, "{v}");
+        assert_eq!(v["items"], 1);
+        post_json(&r, "/v1/inventory", Some(inventory("laptop-b", 3_000))).await;
+        // A newer report replaces the host's previous one.
+        post_json(&r, "/v1/inventory", Some(inventory("laptop-a", 5_000))).await;
+        let (s, v) = get_json(&r, "/v1/inventory").await;
+        assert_eq!(s, StatusCode::OK);
+        let hosts: Vec<&str> = v.as_array().unwrap().iter().map(|i| i["host"].as_str().unwrap()).collect();
+        assert_eq!(hosts, ["laptop-a", "laptop-b"]);
+        assert_eq!(v[0]["scanned_at_ms"], 5_000);
+        assert_eq!(v[0]["items"][0]["name"], "github");
+        assert!(v[0]["items"][0].get("unknown_field").is_none());
+        assert!(app.engine.store().get("inventory/laptop-b").is_some());
+
+        assert_eq!(post_json(&r, "/v1/inventory", Some(json!({ "host": 1 }))).await.0, StatusCode::BAD_REQUEST);
+        assert_eq!(post_json(&r, "/v1/inventory", Some(inventory(" ", 1))).await.0, StatusCode::BAD_REQUEST);
+        let mut big = inventory("big", 1);
+        big["warnings"] = json!(["x".repeat(3 << 20)]);
+        assert_eq!(post_json(&r, "/v1/inventory", Some(big)).await.0, StatusCode::PAYLOAD_TOO_LARGE);
+        // Remote peers need the token like every other endpoint.
+        let req = request("POST", "/v1/inventory", "10.0.0.5:1234", None, Some(inventory("x", 1)));
+        assert_eq!(send(&r, req).await.0, StatusCode::FORBIDDEN);
     }
 
     #[tokio::test]

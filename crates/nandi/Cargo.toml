@@ -33,6 +33,7 @@ nandi-gateway.workspace = true
 nandi-eval.workspace = true
 nandi-sense.workspace = true
 nandi-ml.workspace = true
+nandi-discover.workspace = true
 anyhow.workspace = true
 serde_json.workspace = true
 tracing.workspace = true

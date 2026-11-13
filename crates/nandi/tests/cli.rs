@@ -108,3 +108,41 @@ fn version_prints() {
     let dir = tempfile::tempdir().unwrap();
     assert!(ok(nandi(dir.path(), &["version"])).starts_with("nandi "));
 }
+
+#[test]
+fn discover_json_from_fixture_home() {
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("home");
+    let token = concat!("ghp", "_aB3dE5fG7hJ9kL1mN3pQ5rS7tU9vW1xY3z5A");
+    let claude = serde_json::json!({ "mcpServers": {
+        "github": { "command": "npx", "args": ["-y", "server-github"], "env": { "GITHUB_TOKEN": token } },
+        "fs": { "command": "nandi", "args": ["wrap", "--server", "fs", "--", "npx", "server-fs"] }
+    } });
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::write(home.join(".claude.json"), claude.to_string()).unwrap();
+    std::fs::create_dir_all(home.join(".cursor")).unwrap();
+    std::fs::write(home.join(".cursor/mcp.json"), "{ not json").unwrap();
+
+    let home_arg = home.to_str().unwrap();
+    let o = nandi(dir.path(), &["discover", "--home", home_arg, "--json"]);
+    let out = ok(o);
+    assert!(!out.contains(token), "raw secret in output");
+    let inv: serde_json::Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(inv["coverage"]["servers_total"], 2);
+    assert_eq!(inv["coverage"]["servers_via_nandi"], 1);
+    let gh = inv["items"].as_array().unwrap().iter().find(|i| i["name"] == "github").unwrap();
+    assert_eq!(gh["env"], serde_json::json!(["GITHUB_TOKEN"]));
+    assert_eq!(gh["findings"][0]["rule"], "config.plaintext-secret");
+    assert!(inv["warnings"][0].as_str().unwrap().contains("mcp.json"));
+
+    // Text output with suggestions; reporting to an unreachable admin API
+    // still exits 0 and explains on stderr.
+    let o =
+        nandi(dir.path(), &["discover", "--home", home_arg, "--suggest", "--report", "--admin", "http://127.0.0.1:9"]);
+    let stderr = String::from_utf8_lossy(&o.stderr).into_owned();
+    let out = ok(o);
+    assert!(out.contains("MCP servers through nandi: 1 of 2"), "{out}");
+    assert!(out.contains("\"--server\""), "{out}");
+    assert!(stderr.contains("warning: reporting to http://127.0.0.1:9 failed"), "{stderr}");
+    assert!(stderr.contains("warning: ~/.cursor/mcp.json: invalid JSON"), "{stderr}");
+}
