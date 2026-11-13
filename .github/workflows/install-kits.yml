@@ -1,0 +1,80 @@
+name: Install kits
+
+# Runs the MDM install scripts in deploy/mdm against a published release on
+# real macOS and Windows machines: after every release, on pull requests that
+# change the kits (against the latest release), or on demand for a tag.
+on:
+  pull_request:
+    paths: ["deploy/mdm/**", ".github/workflows/install-kits.yml"]
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release tag to install (default: latest)"
+        default: latest
+
+permissions:
+  contents: read
+
+jobs:
+  install:
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      VERSION: ${{ github.event.inputs.version || 'latest' }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: macOS, install-nandi.sh
+        if: runner.os == 'macOS'
+        run: |
+          set -euo pipefail
+          sudo bash deploy/mdm/macos/install-nandi.sh "" "" "" "$VERSION" "coding-agent,payments"
+          /usr/local/bin/nandi version
+          ls -l "/Library/Application Support/nandi/policies"
+          ls -l /Library/LaunchAgents/io.github.dmdhrumilmistry.nandi.*.plist
+          # The settings profile as macOS writes it, pointing at the installed packs.
+          sudo mkdir -p "/Library/Managed Preferences"
+          sudo plutil -convert binary1 -o "/Library/Managed Preferences/io.github.dmdhrumilmistry.nandi.plist" \
+            deploy/mdm/macos/io.github.dmdhrumilmistry.nandi.plist
+          nandi managed
+          # nandi starts on the managed settings alone and loads the packs.
+          mkdir -p "$HOME/.config/nandi"
+          nandi run -c "$HOME/.config/nandi/nandi.yaml" & PID=$!
+          for i in $(seq 1 30); do curl -sf http://127.0.0.1:8788/healthz >/dev/null && break; sleep 1; done
+          curl -sf http://127.0.0.1:8788/v1/status | jq -e '.mode == "enforce" and (.managed | length) == 2'
+          kill $PID
+          sudo bash deploy/mdm/macos/jamf-extension-attribute.sh || true
+      - name: Windows, Install-Nandi.ps1
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          @"
+          mode: enforce
+          policy:
+            rules: ['C:\ProgramData\nandi\policies\coding-agent.yaml', 'C:\ProgramData\nandi\policies\payments.yaml']
+          approvals: { timeout_secs: 300 }
+          "@ | Set-Content "$env:RUNNER_TEMP\managed.yaml"
+          .\deploy\mdm\windows\Install-Nandi.ps1 -Version $env:VERSION -ManagedSettings "$env:RUNNER_TEMP\managed.yaml"
+          $exe = "$env:ProgramFiles\nandi\nandi.exe"
+          & $exe version
+          Get-ChildItem "$env:ProgramData\nandi\policies"
+          Get-ScheduledTask -TaskName "nandi*" | Format-Table TaskName, State
+          if ((Get-ScheduledTask -TaskName "nandi*").Count -ne 2) { throw "expected two scheduled tasks" }
+          & .\deploy\mdm\windows\Detect-Nandi.ps1; if ($LASTEXITCODE -ne 0) { throw "detection rule failed" }
+          New-Item -ItemType Directory -Force "$env:LOCALAPPDATA\nandi" | Out-Null
+          $p = Start-Process $exe -ArgumentList "run", "-c", "$env:LOCALAPPDATA\nandi\nandi.yaml" -PassThru -NoNewWindow
+          $ok = $false
+          foreach ($i in 1..30) { try { Invoke-RestMethod http://127.0.0.1:8788/healthz | Out-Null; $ok = $true; break } catch { Start-Sleep 1 } }
+          if (-not $ok) { throw "nandi did not start" }
+          $status = Invoke-RestMethod http://127.0.0.1:8788/v1/status
+          if ($status.mode -ne "enforce" -or $status.managed.Count -ne 1) { $status | ConvertTo-Json; throw "managed settings not applied" }
+          Stop-Process $p
+          .\deploy\mdm\windows\Uninstall-Nandi.ps1
+          if (Test-Path $exe) { throw "uninstall left nandi.exe" }
