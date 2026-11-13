@@ -22,6 +22,9 @@ hours three ways:
   peers they reached on the middle ring, and tools on the outer ring. Every
   path runs through the gate in the centre. Line width is call volume, and a
   coloured outline marks anything that was alerted, redacted, held or denied.
+  Small marks on top of a server show its
+  [risk](../policy/capabilities.md#risk-scores): one for medium, two for
+  high, three for critical.
 - **Through the gate.** A flow from each agent to each destination, split by
   decision, so you can see which agent drives which traffic and where the
   denials come from.

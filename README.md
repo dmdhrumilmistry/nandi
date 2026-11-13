@@ -20,8 +20,8 @@ person to approve.
 
 <sub>The dashboard during a demo session. An agent read a poisoned invoice, so its
 email to the address in that invoice is waiting for approval, as is a 48,000
-payment. The MCP server rewrote a tool description after it was approved, and
-one agent has been disabled.</sub>
+payment. One agent has been disabled with the kill switch, so its calls are
+denied.</sub>
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/map-dark.png">
@@ -29,8 +29,9 @@ one agent has been disabled.</sub>
 </picture>
 
 <sub>The map view: every agent, what it reached and which tools it used, with
-each path running through the gate. Outlines mark what was flagged; the flow
-on the right shows where the alerts and denials came from.</sub>
+each path running through the gate. Outlines mark what was flagged, marks on
+top of a server show its risk, and the flow on the right shows where the
+alerts and denials came from.</sub>
 
 ## Why
 

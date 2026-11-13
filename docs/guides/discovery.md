@@ -134,6 +134,8 @@ which clients have the nandi hook, and a table of the items that need
 attention (unwrapped servers, plaintext secrets, risky skills and hooks)
 ordered by severity. Click a row for the findings and the suggested fix.
 
+![The AI footprint card: one laptop with 2 of 5 MCP servers through nandi, a plaintext GitHub token, two unwrapped servers and two clients without the nandi hook](../assets/screenshots/footprint.png)
+
 ## Running it on a schedule or from MDM
 
 Run it as the user whose agents you want to see (it reads that user's

@@ -207,4 +207,8 @@ the coding agent's built-in tools, seen through [hooks](../guides/coding-agents.
 
 After a deliberate upgrade of a local server, accept the new file with
 `POST /v1/servers/accept-binary` (see the [admin API](../reference/admin-api.md)).
-The dashboard's Tool integrity card lists servers by risk.
+The dashboard's Tool integrity card lists servers by risk, with their
+capabilities, and the [map](../operations/observability.md#map) marks each
+server's risk level.
+
+<img src="../assets/screenshots/servers.png" width="400" alt="The Tool integrity card: servers ranked by risk, local and the payment servers at medium, each with its capabilities">
