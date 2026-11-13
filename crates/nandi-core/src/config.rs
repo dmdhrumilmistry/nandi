@@ -58,6 +58,8 @@ pub struct Config {
     pub approvals: ApprovalConfig,
     pub audit: AuditConfig,
     pub telemetry: TelemetryConfig,
+    /// Where events and admin actions are sent: SIEMs, webhooks, files.
+    pub exports: Vec<ExportConfig>,
     pub a2a: A2aConfig,
     pub sensor: SensorConfig,
     pub ml: MlConfig,
@@ -798,6 +800,146 @@ pub struct TelemetryConfig {
     pub webhook_min_severity: crate::decision::Severity,
     /// Log format: `text` or `json`.
     pub log_format: String,
+}
+
+/// Destination type of an export.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ExportKind {
+    /// HTTP POST of JSON, optionally HMAC-signed and batched.
+    Webhook,
+    /// Splunk HTTP Event Collector.
+    SplunkHec,
+    /// Elasticsearch or OpenSearch `_bulk`.
+    Elastic,
+    /// RFC 5424 syslog over UDP, TCP or TLS.
+    Syslog,
+    /// JSON lines file with rotation, for a log shipper.
+    File,
+}
+
+/// How each event is written.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ExportFormat {
+    /// nandi's own JSON: the event, the decision, the applied verdict.
+    Json,
+    /// Open Cybersecurity Schema Framework (OCSF) 1.3.
+    Ocsf,
+    /// Elastic Common Schema.
+    Ecs,
+    /// ArcSight Common Event Format (syslog).
+    Cef,
+}
+
+/// One export destination.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ExportConfig {
+    /// Name shown in status, metrics and logs.
+    pub name: String,
+    #[serde(rename = "type")]
+    pub kind: ExportKind,
+    /// Webhook URL; Splunk HEC or Elasticsearch base URL.
+    pub url: Option<String>,
+    /// Syslog address: `udp://host:514`, `tcp://host:514`, `tls://host:6514`.
+    pub address: Option<String>,
+    /// File path for `file`.
+    pub path: Option<PathBuf>,
+    /// Default: `json` (webhook, Splunk, file), `ecs` (Elastic), `cef` (syslog).
+    pub format: Option<ExportFormat>,
+    /// Splunk HEC token (`env:` / `file:` allowed).
+    pub token: Option<String>,
+    /// Elasticsearch API key, sent as `Authorization: ApiKey ...`.
+    pub api_key: Option<String>,
+    /// Webhook signing secret: requests carry `X-Nandi-Signature`.
+    pub secret: Option<String>,
+    /// Extra HTTP headers (values may be `env:` / `file:`).
+    pub headers: BTreeMap<String, String>,
+    /// Splunk index or Elasticsearch index / data stream.
+    pub index: Option<String>,
+    /// Least restrictive verdict exported; `allow` exports everything.
+    pub min_verdict: Verdict,
+    /// Only these event kinds (`tool_call`, `llm_request`, ...); empty: all.
+    pub kinds: Vec<String>,
+    /// Also export administrative actions (approvals, policy and user
+    /// changes, refused requests), whatever `min_verdict` says.
+    pub admin: bool,
+    /// Webhook: send a JSON array per batch instead of one request per event.
+    pub batch: bool,
+    /// Events per batch at most.
+    pub max_batch: usize,
+    /// How long to gather a batch, in milliseconds.
+    pub flush_ms: u64,
+    /// Syslog facility (16 = local0).
+    pub facility: u8,
+    /// Syslog over TLS: PEM file of extra CA certificates to trust, for a
+    /// SIEM with a private certificate authority.
+    pub ca_file: Option<PathBuf>,
+    /// File: rotate when the file reaches this many megabytes (keeps 5).
+    pub max_file_mb: u64,
+}
+
+impl Default for ExportConfig {
+    fn default() -> Self {
+        Self {
+            name: String::new(),
+            kind: ExportKind::Webhook,
+            url: None,
+            address: None,
+            path: None,
+            format: None,
+            token: None,
+            api_key: None,
+            secret: None,
+            headers: BTreeMap::new(),
+            index: None,
+            min_verdict: Verdict::Alert,
+            kinds: Vec::new(),
+            admin: true,
+            batch: false,
+            max_batch: 100,
+            flush_ms: 1000,
+            facility: 16,
+            ca_file: None,
+            max_file_mb: 100,
+        }
+    }
+}
+
+impl ExportConfig {
+    /// The format, with the destination's default.
+    pub fn format(&self) -> ExportFormat {
+        self.format.unwrap_or(match self.kind {
+            ExportKind::Elastic => ExportFormat::Ecs,
+            ExportKind::Syslog => ExportFormat::Cef,
+            _ => ExportFormat::Json,
+        })
+    }
+
+    /// Missing or contradictory settings.
+    pub fn check(&self) -> std::result::Result<(), String> {
+        let need = |what: &str, v: bool| if v { Ok(()) } else { Err(format!("export {}: needs {what}", self.name)) };
+        if self.name.trim().is_empty() {
+            return Err("every export needs a name".into());
+        }
+        match self.kind {
+            ExportKind::Webhook | ExportKind::Elastic => need("url", self.url.is_some())?,
+            ExportKind::SplunkHec => {
+                need("url", self.url.is_some())?;
+                need("token", self.token.is_some())?;
+            }
+            ExportKind::Syslog => need("address (udp://, tcp:// or tls://)", self.address.is_some())?,
+            ExportKind::File => need("path", self.path.is_some())?,
+        }
+        if self.format() == ExportFormat::Cef && self.kind != ExportKind::Syslog && self.kind != ExportKind::File {
+            return Err(format!("export {}: cef is for syslog and files", self.name));
+        }
+        if self.max_batch == 0 || self.facility > 23 {
+            return Err(format!("export {}: max_batch must be at least 1 and facility 0 to 23", self.name));
+        }
+        Ok(())
+    }
 }
 
 impl Default for TelemetryConfig {

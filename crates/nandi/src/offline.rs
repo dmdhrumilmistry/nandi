@@ -252,6 +252,44 @@ pub fn export(log: &AuditLog, out: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// `nandi audit export --format`: every record as a SIEM takes it (the
+/// formats of `exports`), oldest first, to backfill one.
+pub fn export_as(log: &AuditLog, out: &Path, format: &str) -> anyhow::Result<()> {
+    use nandi_core::config::ExportFormat;
+    let fmt = match format {
+        "json" => ExportFormat::Json,
+        "ocsf" => ExportFormat::Ocsf,
+        "ecs" => ExportFormat::Ecs,
+        "cef" => ExportFormat::Cef,
+        other => bail!("unknown format {other} (json, ocsf, ecs or cef)"),
+    };
+    let mut w: Box<dyn Write> = if out == Path::new("-") {
+        Box::new(BufWriter::new(std::io::stdout().lock()))
+    } else {
+        Box::new(BufWriter::new(File::create(out).with_context(|| format!("creating {}", out.display()))?))
+    };
+    let (mut cursor, mut n) = (0u64, 0usize);
+    loop {
+        let page = log
+            .query(&Query { since_seq: Some(cursor), limit: 1000, ..Query::default() })
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
+        if page.is_empty() {
+            break;
+        }
+        for r in page {
+            cursor = r.seq;
+            let applied = r.decision.effective();
+            let live =
+                nandi_gateway::recorder::LiveEvent { seq: Some(r.seq), event: r.event, decision: r.decision, applied };
+            writeln!(w, "{}", nandi_gateway::exports::line(fmt, &live))?;
+            n += 1;
+        }
+    }
+    w.flush()?;
+    eprintln!("exported {n} record(s) as {format}");
+    Ok(())
+}
+
 /// `nandi audit trail`: administrative actions, newest first.
 pub fn trail(
     log: &AuditLog,

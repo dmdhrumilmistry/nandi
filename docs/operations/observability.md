@@ -83,7 +83,8 @@ decision), the column shows both, for example `deny>allow`.
 - OpenTelemetry: set `telemetry.otlp_endpoint` (for example
   `http://127.0.0.1:4318`) and optional `otlp_headers`; events are exported as
   OTLP/HTTP spans following the GenAI semantic conventions.
-- Webhooks: `telemetry.webhooks` receive findings at or above
+- SIEMs, webhooks and files: see [exports](exports.md). The older
+  `telemetry.webhooks` receive findings at or above
   `telemetry.webhook_min_severity`.
 - Health: `GET /healthz` (no auth) returns status, version, mode and uptime.
 

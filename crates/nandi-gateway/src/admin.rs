@@ -194,6 +194,8 @@ fn build(app: Arc<App>, shutdown: watch::Receiver<bool>) -> Router {
         .route("/v1/policies/changes/{id}/approve", post(policy_approve))
         .route("/v1/policies/changes/{id}/reject", post(policy_reject))
         .route("/v1/policies/changes/{id}/withdraw", post(policy_withdraw))
+        .route("/v1/exports", get(exports_status))
+        .route("/v1/exports/{name}/test", post(export_test))
         .route("/v1/me", get(me))
         .route("/v1/users", get(users_list).post(user_create))
         .route("/v1/users/{name}", axum::routing::patch(user_update).delete(user_delete))
@@ -352,6 +354,7 @@ fn describe(method: &Method, path: &str) -> (String, String) {
         ["tokens", "revoke"] => ("token.revoke".into(), String::new()),
         ["policy", "reload"] => ("policy.reload".into(), String::new()),
         ["users"] => ("user.create".into(), String::new()),
+        ["exports", name, "test"] => ("export.test".into(), name.to_string()),
         ["policies", "changes"] => ("policy.change.propose".into(), String::new()),
         ["policies", "changes", id, verb] => (format!("policy.change.{verb}"), id.to_string()),
         ["users", name] if m == "patch" => ("user.update".into(), name.to_string()),
@@ -493,7 +496,9 @@ async fn metrics(State(st): State<AdminState>) -> Response {
         ("nandi_approvals_pending", "Calls waiting for an operator.", app.approvals.len() as f64),
         ("nandi_agents_killed", "Agents stopped by the kill switch.", app.engine.killed().len() as f64),
     ];
-    let mut resp = app.metrics.render(&gauges).into_response();
+    let mut text = app.metrics.render(&gauges);
+    text.push_str(&app.exports.metrics());
+    let mut resp = text.into_response();
     resp.headers_mut().insert(header::CONTENT_TYPE, HeaderValue::from_static("text/plain; version=0.0.4"));
     resp
 }
@@ -880,6 +885,25 @@ async fn policy_withdraw(
     Path(id): Path<String>,
 ) -> ApiResult {
     ok_json(st.app.policies.withdraw(&id, &who.name).map_err(change_error)?)
+}
+
+// ----- exports ---------------------------------------------------------------------
+
+async fn exports_status(State(st): State<AdminState>) -> ApiResult {
+    ok_json(st.app.exports.status())
+}
+
+/// Deliver a test event to one export, now.
+async fn export_test(
+    State(st): State<AdminState>,
+    Extension(who): Extension<Principal>,
+    Path(name): Path<String>,
+) -> ApiResult {
+    match st.app.exports.test(&name, &who.name).await {
+        Ok(()) => ok_json(json!({ "ok": true, "export": name })),
+        Err(e) if e.to_string().starts_with("no export") => Err(ApiError::not_found(e.to_string())),
+        Err(e) => Err(ApiError(StatusCode::BAD_GATEWAY, format!("{e:#}"))),
+    }
 }
 
 // ----- users and the admin audit trail ---------------------------------------------

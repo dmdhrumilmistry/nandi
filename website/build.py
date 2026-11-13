@@ -54,6 +54,7 @@ NAV = [
         ("operations/users.md", "Users and audit trail"),
         ("operations/audit.md", "Audit log"),
         ("operations/observability.md", "Observability"),
+        ("operations/exports.md", "SIEM and webhook exports"),
         ("operations/deployment.md", "Deployment"),
         ("operations/mdm.md", "Fleets: Jamf, Intune, Linux"),
     ]),

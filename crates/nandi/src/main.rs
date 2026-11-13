@@ -303,11 +303,16 @@ enum AuditCmd {
         #[arg(long)]
         pubkey: Option<String>,
     },
-    /// Export every record as JSON lines.
+    /// Export every record as JSON lines: the signed records (verifiable with
+    /// `audit verify --export`), or with --format the same events as a SIEM
+    /// takes them, to backfill one.
     Export {
         /// Output file, `-` for stdout.
         #[arg(long)]
         out: PathBuf,
+        /// json, ocsf, ecs or cef instead of the signed records.
+        #[arg(long)]
+        format: Option<String>,
         #[arg(long)]
         db: Option<PathBuf>,
         #[arg(long)]
@@ -715,7 +720,8 @@ async fn dispatch(cli: Cli) -> anyhow::Result<i32> {
                     offline::verify_export(&file, pubkey.as_deref().context("--pubkey is required")?)?
                 }
                 AuditCmd::Verify { db, key, .. } => offline::verify_db(&open(db, key)?)?,
-                AuditCmd::Export { out, db, key } => offline::export(&open(db, key)?, &out)?,
+                AuditCmd::Export { out, db, key, format: None } => offline::export(&open(db, key)?, &out)?,
+                AuditCmd::Export { out, db, key, format: Some(f) } => offline::export_as(&open(db, key)?, &out, &f)?,
                 AuditCmd::Head { db, key } => offline::head(&open(db, key)?)?,
                 AuditCmd::Trail { actor, action, limit, json, db, key } => {
                     offline::trail(&open(db, key)?, actor.as_deref(), action.as_deref(), limit, json)?

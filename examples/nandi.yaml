@@ -170,3 +170,13 @@ telemetry:
   # otlp_endpoint: http://127.0.0.1:4318
   # webhooks: [env:NANDI_ALERT_WEBHOOK]
   webhook_min_severity: high
+
+# Send decisions and admin actions to a SIEM, webhook or file. See
+# docs/operations/exports.md for every option.
+exports: []
+#  - name: splunk
+#    type: splunk_hec              # webhook, splunk_hec, elastic, syslog, file
+#    url: https://splunk.example:8088
+#    token: env:SPLUNK_HEC_TOKEN
+#    format: ocsf                  # json, ocsf, ecs, cef
+#    min_verdict: alert            # allow sends everything

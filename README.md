@@ -68,6 +68,8 @@ deterministic decision:
 - **Evidence.** A hash-chained, Ed25519-signed audit log, OpenTelemetry spans
   and Prometheus metrics. Named users with roles, and every approval, kill
   switch use, policy and user change in the same signed log, under their name.
+- **Exports.** Every decision and admin action to Splunk, Elasticsearch,
+  syslog SIEMs (CEF), signed webhooks or files, as OCSF, ECS or JSON.
 
 It runs in monitor mode first, so you can see what enforcement would do on
 real traffic before turning it on.
@@ -163,7 +165,7 @@ ours, so treat it as a regression suite rather than a benchmark; see
   [approvals](docs/operations/approvals.md), [identity](docs/operations/identity.md),
   [users and audit trail](docs/operations/users.md),
   [audit](docs/operations/audit.md), [observability](docs/operations/observability.md),
-  [deployment](docs/operations/deployment.md), [fleets with Jamf, Intune and Linux](docs/operations/mdm.md)
+  [SIEM and webhook exports](docs/operations/exports.md), [deployment](docs/operations/deployment.md), [fleets with Jamf, Intune and Linux](docs/operations/mdm.md)
 - Reference: [configuration](docs/reference/configuration.md), [CLI](docs/reference/cli.md),
   [admin API](docs/reference/admin-api.md)
 
