@@ -9,45 +9,36 @@ permissions:
 
 jobs:
   build:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - runner: ubuntu-latest
-            target: x86_64-unknown-linux-musl
-          - runner: ubuntu-24.04-arm
-            target: aarch64-unknown-linux-musl
-          - runner: macos-latest
-            target: aarch64-apple-darwin
-    runs-on: ${{ matrix.runner }}
-    steps:
-      - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
-      - if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y musl-tools
-      - run: cargo build --release --locked -p nandi --target ${{ matrix.target }}
-      - name: Package
-        run: |
-          NAME=nandi-${GITHUB_REF_NAME}-${{ matrix.target }}
-          mkdir "$NAME"
-          cp target/${{ matrix.target }}/release/nandi LICENSE README.md "$NAME"/
-          cp -r examples "$NAME"/
-          tar czf "$NAME.tar.gz" "$NAME"
-          shasum -a 256 "$NAME.tar.gz" > "$NAME.tar.gz.sha256"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.target }}
-          path: nandi-*.tar.gz*
+    uses: ./.github/workflows/build.yml
 
   publish:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v5
       - uses: actions/download-artifact@v4
         with:
-          merge-multiple: true
+          path: artifacts
+          pattern: nandi-*
+      - name: Package
+        run: |
+          set -euo pipefail
+          mkdir dist
+          for dir in artifacts/nandi-*; do
+            target=${dir#artifacts/nandi-}
+            name="nandi-${GITHUB_REF_NAME}-${target}"
+            mkdir "$name"
+            cp "$dir"/nandi* "$name"/
+            chmod +x "$name"/nandi* # artifacts do not keep the executable bit
+            cp LICENSE README.md "$name"/
+            cp -r examples "$name"/
+            case "$target" in
+              *windows*) zip -qr "dist/$name.zip" "$name"; out="$name.zip" ;;
+              *) tar czf "dist/$name.tar.gz" "$name"; out="$name.tar.gz" ;;
+            esac
+            (cd dist && sha256sum "$out" > "$out.sha256")
+          done
+          ls -la dist
       - env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" nandi-*.tar.gz* --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes
+        run: gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes

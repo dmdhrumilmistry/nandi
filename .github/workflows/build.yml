@@ -1,0 +1,120 @@
+name: Build
+
+# Release binaries for every supported target, each smoke-tested: `version`,
+# `init` and `policy validate` (which loads Cedar). Called by CI on pull
+# requests, and by the Release and Image workflows on tags.
+#
+# Linux binaries are static (musl). armv7, riscv64 and ppc64le are
+# cross-compiled with cargo-zigbuild and run under QEMU for the smoke test.
+# Artifacts are named nandi-<target>; Linux ones also carry platform.txt
+# (the Docker platform, e.g. linux/arm/v7) for the image workflow.
+
+on:
+  workflow_call:
+    inputs:
+      linux-only:
+        description: Build only the Linux targets (container images).
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  targets:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.pick.outputs.matrix }}
+    steps:
+      - id: pick
+        env:
+          LINUX_ONLY: ${{ inputs.linux-only }}
+        run: |
+          ALL='[
+            {"target":"x86_64-unknown-linux-musl","runner":"ubuntu-latest","platform":"linux/amd64"},
+            {"target":"aarch64-unknown-linux-musl","runner":"ubuntu-24.04-arm","platform":"linux/arm64"},
+            {"target":"armv7-unknown-linux-musleabihf","runner":"ubuntu-latest","zig":true,"qemu":"arm","platform":"linux/arm/v7"},
+            {"target":"riscv64gc-unknown-linux-musl","runner":"ubuntu-latest","zig":true,"qemu":"riscv64","platform":"linux/riscv64"},
+            {"target":"powerpc64le-unknown-linux-musl","runner":"ubuntu-latest","zig":true,"qemu":"ppc64le","platform":"linux/ppc64le"},
+            {"target":"x86_64-apple-darwin","runner":"macos-latest","rosetta":true},
+            {"target":"aarch64-apple-darwin","runner":"macos-latest"},
+            {"target":"x86_64-pc-windows-msvc","runner":"windows-latest"},
+            {"target":"aarch64-pc-windows-msvc","runner":"windows-11-arm"}
+          ]'
+          if [ "$LINUX_ONLY" = true ]; then FILTER='[.[] | select(.platform)]'; else FILTER='.'; fi
+          echo "matrix=$(jq -c "$FILTER" <<< "$ALL")" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: ${{ matrix.target }}
+    needs: targets
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.targets.outputs.matrix) }}
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: build-${{ matrix.target }}
+
+      - name: Build (native)
+        if: ${{ !matrix.zig }}
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = Linux ]; then sudo apt-get update && sudo apt-get install -y musl-tools; fi
+          cargo build --release --locked -p nandi --target ${{ matrix.target }}
+
+      - name: Build (cargo-zigbuild)
+        if: ${{ matrix.zig }}
+        run: |
+          pipx install cargo-zigbuild
+          export PATH="$HOME/.local/bin:$PATH"
+          cargo zigbuild --release --locked -p nandi --target ${{ matrix.target }}
+
+      - name: Smoke test
+        shell: bash
+        run: |
+          set -euo pipefail
+          EXE=""; [ "$RUNNER_OS" = Windows ] && EXE=".exe"
+          BIN="target/${{ matrix.target }}/release/nandi$EXE"
+          RUN=("$BIN")
+          if [ -n "${{ matrix.qemu }}" ]; then
+            sudo apt-get update && sudo apt-get install -y qemu-user-static
+            RUN=("qemu-${{ matrix.qemu }}-static" "$BIN")
+          fi
+          if [ "${{ matrix.rosetta }}" = true ]; then
+            if ! arch -x86_64 /usr/bin/true 2>/dev/null; then
+              echo "::notice::Rosetta is not available on this runner; checking the binary format only."
+              file "$BIN" | grep -q x86_64
+              exit 0
+            fi
+            RUN=(arch -x86_64 "$BIN")
+          fi
+          file "$BIN" || true
+          DIR=$(mktemp -d)
+          "${RUN[@]}" version
+          "${RUN[@]}" init --dir "$DIR" >/dev/null
+          "${RUN[@]}" policy validate -c "$DIR/nandi.yaml"
+          "${RUN[@]}" policy packs >/dev/null
+          echo "${{ matrix.target }}: $(wc -c < "$BIN") bytes" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Collect
+        shell: bash
+        run: |
+          mkdir out
+          cp "target/${{ matrix.target }}/release/nandi${{ runner.os == 'Windows' && '.exe' || '' }}" out/
+          if [ -n "${{ matrix.platform }}" ]; then echo "${{ matrix.platform }}" > out/platform.txt; fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nandi-${{ matrix.target }}
+          path: out/*
+          if-no-files-found: error
+          retention-days: 7

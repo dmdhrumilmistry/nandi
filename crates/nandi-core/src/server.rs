@@ -626,7 +626,20 @@ pub fn resolve_executable(command: &str) -> Option<PathBuf> {
         return p.is_file().then(|| p.to_path_buf());
     }
     let path = std::env::var_os("PATH")?;
-    std::env::split_paths(&path).map(|dir| dir.join(command)).find(|c| c.is_file())
+    // Windows looks up `node` as `node.exe`, `node.cmd` and so on.
+    let exts: Vec<String> = if cfg!(windows) && Path::new(command).extension().is_none() {
+        std::env::var("PATHEXT")
+            .unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".into())
+            .split(';')
+            .filter(|e| !e.is_empty())
+            .map(str::to_ascii_lowercase)
+            .collect()
+    } else {
+        vec![String::new()]
+    };
+    std::env::split_paths(&path)
+        .flat_map(|dir| exts.iter().map(move |e| dir.join(format!("{command}{e}"))))
+        .find(|c| c.is_file())
 }
 
 /// Hex SHA-256 of a file's contents, read in chunks.
@@ -824,7 +837,8 @@ mod tests {
         let p = p.with_local_digest(digest);
         assert!(p.pinned);
         assert!(local_digest(&pkg("node /does/not/exist.js").unwrap()).is_none());
-        assert!(resolve_executable("sh").is_some() || std::env::var_os("PATH").is_none());
+        let shell = if cfg!(windows) { "cmd" } else { "sh" };
+        assert!(resolve_executable(shell).is_some() || std::env::var_os("PATH").is_none());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

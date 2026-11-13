@@ -1,9 +1,10 @@
 # Multi-arch image from prebuilt static binaries (used by the image
-# workflow). The binaries are built natively per architecture, so no
-# emulated Rust build is needed.
+# workflow). The binaries are built per architecture (natively or with
+# cargo-zigbuild), so no emulated Rust build is needed.
 #
 #   dist/linux/amd64/nandi
 #   dist/linux/arm64/nandi
+#   dist/linux/arm/v7/nandi, dist/linux/riscv64/nandi, dist/linux/ppc64le/nandi
 #   dist/data/            (empty directory, becomes /var/lib/nandi)
 
 FROM scratch
