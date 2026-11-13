@@ -28,10 +28,11 @@ denied.</sub>
   <img alt="The nandi map: agents, the servers and models they reached, and their tools, all connected through the gate, next to a flow of calls split by decision" src="docs/assets/screenshots/map-light.png">
 </picture>
 
-<sub>The map view: every agent, what it reached and which tools it used, with
-each path running through the gate. Outlines mark what was flagged, marks on
-top of a server show its risk, and the flow on the right shows where the
-alerts and denials came from.</sub>
+<sub>The map: every agent, what it reached and which tools it used, each path
+through the gate. Coloured lines are what was flagged and marks show a
+server's risk. Selecting claude-code opens its details: decisions, where it
+went, recent calls and the kill switch. Pan, zoom, search, switch to
+columns, or drag across the timeline to see any time range.</sub>
 
 ## Why
 

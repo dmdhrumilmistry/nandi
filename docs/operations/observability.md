@@ -15,25 +15,43 @@ it in the browser's local storage.
 
 ### Map
 
-The Map tab (or `/#map`) draws the audit log for the last 15 minutes to 24
-hours three ways:
+The **Map** tab (or `/#map`) answers one question: which agents reached
+what, and what nandi did about it. Pick the last 15 minutes to 24 hours, or
+any range on the timeline.
 
-- **Kailash map.** Agents on the inner ring, the MCP servers, models and
-  peers they reached on the middle ring, and tools on the outer ring. Every
-  path runs through the gate in the centre. Line width is call volume, and a
-  coloured outline marks anything that was alerted, redacted, held or denied.
-  Small marks on top of a server show its
+- **The Kailash map.** Agents, the MCP servers, models and peers they
+  reached, and their tools, with every path through the gate. Line width is
+  volume; a coloured line on top is the share that was flagged, coloured by
+  its worst decision, so a path with one denial in 400 calls stays mostly
+  grey. Marks on top of a server show its
   [risk](../policy/capabilities.md#risk-scores): one for medium, two for
   high, three for critical.
-- **Through the gate.** A flow from each agent to each destination, split by
-  decision, so you can see which agent drives which traffic and where the
-  denials come from.
-- **Decisions over time.** Stacked bars per time bucket.
+- **Rings or layers.** The same graph as rings around the gate, or as
+  columns (agents, the gate, what they reached, tools), which reads better
+  with many nodes.
+- **Pan and zoom** with drag, the mouse wheel, the + and − buttons, or the
+  keyboard (`+`, `-`, `0` to fit, arrows to move). Tool labels appear as you
+  zoom in.
+- **Find** highlights an agent, server or tool and its paths. **Only
+  flagged** keeps paths with at least one alert, redaction, hold or denial.
+- **Details.** Click anything (or focus it and press Enter) to open it in
+  the side panel: its decisions as a bar, where an agent went or which
+  agents reached a server, a server's risk, capabilities and tools, its
+  most recent decisions, and **Disable agent** for operators. Click a name
+  in the panel to move to it; Escape closes it.
+- **Time.** Drag across the bars of *Decisions over time* (or press Enter
+  on one) and the map, the flow and the summary show that range; **Clear**
+  goes back to the last 15 minutes to 24 hours.
+- **Live.** New decisions travel along their path as small dots in the
+  colour of the decision (not with reduced motion).
+- *Through the gate* shows the same traffic as a flow from agents to
+  destinations, split by decision, and **Show as table** gives everything as
+  tables.
 
-Hover any mark for its counts, or use **Show as table** for the same data as
-tables. The busiest 40 destinations and 80 tools are drawn; the rest fold
-into "other". The map needs the audit log (`audit.enabled`); the data comes
-from [`GET /v1/graph`](../reference/admin-api.md).
+The busiest 40 destinations and 80 tools are drawn; the rest fold into
+"other". The map needs the audit log (`audit.enabled`); the data comes from
+[`GET /v1/graph`](../reference/admin-api.md) (`window_secs`, and `until_ms`
+for a past range).
 
 ![The map in light mode](../assets/screenshots/map-light.png)
 

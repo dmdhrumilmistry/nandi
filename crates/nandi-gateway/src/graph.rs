@@ -138,7 +138,7 @@ pub fn build(log: &AuditLog, now_ms: u64, window_secs: u64, buckets: usize) -> n
 
     for r in &records {
         let (ev, v) = (&r.event, r.decision.verdict);
-        if ev.ts_ms < start || matches!(ev.kind, EventKind::Admin(_)) {
+        if ev.ts_ms < start || ev.ts_ms > now_ms || matches!(ev.kind, EventKind::Admin(_)) {
             continue;
         }
         let i = (((ev.ts_ms - start) / bucket_ms) as usize).min(buckets - 1);
@@ -254,6 +254,11 @@ mod tests {
         log.append(&call("b", "slack", "post", now - 5_000), &Decision::allow()).unwrap();
         // Outside the window.
         log.append(&call("c", "old", "x", now - 900_000), &Decision::allow()).unwrap();
+
+        // A past range ending before the last call leaves it out.
+        let past = build(&log, now - 20_000, 120, 12).unwrap();
+        assert!(!past.nodes.iter().any(|n| n.id == "agent:b"));
+        assert!(past.nodes.iter().any(|n| n.id == "agent:a"));
 
         let g = build(&log, now, 120, 12).unwrap();
         assert!(!g.truncated);
