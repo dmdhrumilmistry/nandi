@@ -63,6 +63,7 @@ NAV = [
         ("reference/admin-api.md", "Admin API"),
     ]),
     ("Background", [
+        ("background/threat-model.md", "Threat model"),
         ("background/research.md", "Research"),
         ("background/evaluation.md", "Evaluation"),
     ]),
@@ -82,8 +83,22 @@ def rel(from_path: str, to_path: str) -> str:
     return "../" * depth + to_path
 
 
+MERMAID = re.compile(r"^```mermaid\n(.*?)\n```$", re.S | re.M)
+
+
+def diagrams(text: str) -> str:
+    """Mermaid code blocks become diagrams, drawn in the browser by the
+    vendored Mermaid (assets/vendor/mermaid). The source stays readable as a
+    fallback and on GitHub."""
+    return MERMAID.sub(
+        lambda m: '\n<figure class="diagram"><pre class="mermaid">' + html.escape(m.group(1)) + "</pre></figure>\n",
+        text,
+    )
+
+
 def render_markdown(text: str, src: str):
     text = INCLUDE.sub(lambda m: "```" + m.group(2) + "\n" + (ROOT / m.group(1)).read_text().rstrip() + "\n```", text)
+    text = diagrams(text)
     md = markdown.Markdown(
         extensions=["fenced_code", "codehilite", "tables", "toc", "sane_lists", "attr_list"],
         extension_configs={
@@ -202,6 +217,12 @@ def build(out: Path, base_url: str):
             root=root,
             edit=f"{REPO}/edit/main/docs/{src}",
             description=html.escape(text_of(body)[:180]),
+            scripts=(
+                f'<script src="{root}assets/vendor/mermaid/mermaid.min.js" defer></script>\n'
+                f'<script src="{root}assets/diagrams.js" defer></script>'
+            )
+            if 'class="mermaid"' in body
+            else "",
             canonical=(base_url.rstrip("/") + "/" + page_out) if base_url else "",
         )
         (out / page_out).parent.mkdir(parents=True, exist_ok=True)

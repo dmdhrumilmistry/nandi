@@ -17,6 +17,28 @@ While nandi is running, `GET /v1/audit/verify` on the admin API verifies the
 live log.
 
 
+```mermaid
+flowchart LR
+    g[genesis] --> r1
+    subgraph r1 [record 1]
+        e1[event + decision]
+        h1["hash = H(prev, record)"]
+        s1[Ed25519 signature]
+    end
+    r1 --> r2
+    subgraph r2 [record 2]
+        e2[event + decision]
+        h2["hash = H(hash 1, record)"]
+        s2[signature]
+    end
+    r2 --> r3[record 3 ...]
+```
+
+Changing, removing or reordering any record breaks every hash after it, and
+the signatures tie the chain to this log's key. Administrative actions
+(approvals, the kill switch, policy and user changes) are records in the same
+chain.
+
 ## What a record contains
 
 Each record holds the event, the decision (verdict, findings, whether it was

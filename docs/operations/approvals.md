@@ -26,6 +26,21 @@ servers and the generic hook. Coding-agent hooks hand `ask` to the host
 instead (Claude Code's or Cursor's own permission prompt), so the developer
 decides in the editor they are already looking at.
 
+```mermaid
+stateDiagram-v2
+    [*] --> Held: verdict ask
+    Held --> Allowed: approved (dashboard, nandi approvals, webhook link)
+    Held --> Denied: denied
+    Held --> TimedOut: approvals.timeout_secs passed
+    TimedOut --> Denied: on_timeout deny (default)
+    TimedOut --> Allowed: on_timeout allow
+    Allowed --> [*]
+    Denied --> [*]
+```
+
+Who approved or denied is recorded with the event, and in the
+[audit trail](users.md#the-audit-trail).
+
 ## Kill switch
 
 The kill switch denies every action of an agent, in monitor mode too, until it

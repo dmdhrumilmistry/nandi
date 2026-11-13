@@ -105,6 +105,27 @@ the model instructions scores 40 + 20 = 60, high.
 
 ## Server supply chain
 
+```mermaid
+flowchart TB
+    s[MCP server starts or lists tools] --> a{servers.approved<br/>has entries?}
+    a -->|no| pin
+    a -->|yes| m{name matches<br/>an entry?}
+    m -->|no| un[server.unapproved<br/>on_unknown]
+    m -->|yes| sp{package, URL or<br/>sha256 match?}
+    sp -->|no| mis[server.spec-mismatch: deny]
+    sp -->|yes| pin{exact version<br/>or digest?}
+    pin -->|no| unp[server.unpinned<br/>on_unpinned]
+    pin -->|yes| bin{local file changed<br/>since first seen?}
+    unp --> bin
+    bin -->|yes| chg[server.binary-changed<br/>on_binary_change]
+    bin -->|no| osv{OSV lookup on:<br/>advisories?}
+    chg --> osv
+    osv -->|MAL-*| mal[server.malicious-package<br/>not started in enforce mode]
+    osv -->|vulnerabilities| vul[server.vulnerable-package]
+    osv -->|none| ok[runs; any deny finding<br/>quarantines the server]
+```
+
+
 nandi records how each MCP server is reached: the command line of a server
 run with `nandi wrap`, or the upstream URL of a proxy route. From the
 command line it works out which package the server runs:

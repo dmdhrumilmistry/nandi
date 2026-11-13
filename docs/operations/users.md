@@ -18,6 +18,24 @@ Users can reach the admin API from anywhere; only local access is limited
 to loopback. Tokens are random, shown once when they are created or
 replaced, and stored only as SHA-256 hashes.
 
+```mermaid
+flowchart TB
+    r[Request] --> t{Bearer token?}
+    t -->|admin token| adm[admin: everything]
+    t -->|a user's token| u[that user's roles]
+    t -->|report token| rep[reporter: inventories only]
+    t -->|none or unknown| l{admin.token set?}
+    l -->|yes| no401[401]
+    l -->|no, and from loopback| loc[local: everything]
+    l -->|no, not loopback| no403[403]
+    adm --> c{Route needs a<br/>permission the<br/>roles grant?}
+    u --> c
+    rep --> c
+    loc --> c
+    c -->|no| d403[403, recorded as access.denied]
+    c -->|yes| ok[Handled; changes recorded<br/>in the audit trail]
+```
+
 ## Roles
 
 Roles add up, so a person who approves held calls and also edits policy

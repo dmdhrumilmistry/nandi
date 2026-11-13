@@ -4,6 +4,35 @@ Everything nandi sees becomes an **event**, every event gets a **decision**,
 and every decision is recorded. The rest of this page explains those three
 steps.
 
+```mermaid
+flowchart LR
+    subgraph agents [Your agents]
+        A1[SDK agents]
+        A2[Claude Code, Codex,<br/>Cursor, Gemini CLI]
+        A3[MCP clients]
+    end
+    subgraph nandi [nandi]
+        P[Proxy<br/>LLM, MCP, A2A]
+        H[Hooks]
+        W[nandi wrap<br/>stdio MCP]
+        S[Host sensor]
+        E{{Engine<br/>one event model}}
+        P --> E
+        H --> E
+        W --> E
+        S --> E
+        E --> R[(Signed audit log)]
+        E --> Q[Approvals]
+        E --> O[OpenTelemetry,<br/>metrics, webhooks]
+    end
+    A1 --> P
+    A2 --> H
+    A3 --> W
+    P --> U1[LLM APIs]
+    P --> U2[MCP servers,<br/>other agents]
+    W --> U3[local MCP servers]
+```
+
 ## Events
 
 The capture points (HTTP proxy, stdio wrapper, hooks, host sensor) all turn
@@ -57,6 +86,23 @@ For a tool call, the engine runs:
    arguments.
 8. **Behaviour.** Loops, and tool sequences this agent has never used.
 
+```mermaid
+flowchart TB
+    ev([tool call]) --> k[Identity and kill switch]
+    k --> b[Budgets and rate limits]
+    b --> i[Tool integrity: pins, drift, server gate]
+    i --> p[Policy: rules, sequences, Cedar]
+    p --> pl[Plan]
+    pl --> t[Data flow: taint, value flow]
+    t --> d[Detection: secrets, PII, SSRF, honeytokens]
+    d --> be[Behaviour: loops, unusual sequences]
+    be --> v{Most restrictive<br/>finding}
+    v -->|allow, alert| pass[Passes]
+    v -->|redact| rw[Rewritten, then passes]
+    v -->|ask| hold[Held for a person]
+    v -->|deny| block[Blocked with a readable error]
+```
+
 Tool results go through the same pipeline in the other direction: they taint
 the session, are indexed for value flow, and are scanned for prompt
 injection, hidden unicode and exfiltration links before the agent sees them.
@@ -74,6 +120,27 @@ untrusted source (a tool result, an inbound A2A message) enters it. After
 that, consequential tools (send, post, pay, exec and similar) are flagged,
 and arguments that copy values out of the untrusted content are held for
 approval. [Data flow](policy/data-flow.md) covers this in detail.
+
+A held call, end to end:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant A as Agent
+    participant N as nandi
+    participant P as Person (dashboard, CLI, webhook)
+    participant T as Tool
+    A->>N: tools/call pay_invoice(amount 48000)
+    N->>N: rule large-payment: ask
+    N-->>P: approval needed (webhook)
+    Note over A,N: the call waits, up to approvals.timeout_secs
+    P->>N: approve
+    N->>T: forward the call
+    T-->>N: result
+    N->>N: scan the result, taint the session
+    N-->>A: result
+    N->>N: record event, decision and approver
+```
 
 ## Failure behaviour
 
