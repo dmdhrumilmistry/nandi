@@ -1,0 +1,90 @@
+# Capability rules and the approved-server gate: money-moving tools held for
+# a human whatever their name, unknown MCP servers quarantined, and an
+# approved server whose package was swapped for another version denied.
+- name: payment-tool-held-by-capability
+  kind: attack
+  category: capability
+  reference: Capability-based tool authorization (MCP risk taxonomies)
+  rules: |
+    rules:
+      - id: payments-need-approval
+        match: { capability: payment }
+        action: ask
+        severity: high
+  steps:
+    - list:
+        server: billing
+        tools:
+          - { name: list_invoices, description: Lists invoices of a customer }
+          - { name: issue_refund, description: Refunds a charge to the customer's card }
+    - call: { server: billing, tool: list_invoices, args: { customer: cus-204 } }
+      expect: allow
+    - call: { server: billing, tool: issue_refund, args: { charge: ch-0042, amount: 120 } }
+      expect: block
+      rules: [policy.payments-need-approval]
+
+- name: payment-capability-in-cedar
+  kind: attack
+  category: capability
+  reference: Cedar resource attributes
+  cedar: |
+    permit (principal, action, resource);
+    @id("no-agent-payouts")
+    forbid (principal, action == Action::"call_tool", resource)
+      when { resource.capabilities.contains("payment") };
+  steps:
+    - call: { server: local, tool: create_payout, args: { amount: 900, iban: DE00-TEST } }
+      expect: block
+      rules: [cedar.no-agent-payouts]
+
+- name: unapproved-server-quarantined
+  kind: attack
+  category: supply-chain
+  reference: MCP server allow-listing (OWASP MCP Top 10, shadow servers)
+  config:
+    servers:
+      on_unknown: deny
+      approved: [ { name: github, package: "npm:@modelcontextprotocol/server-github@2025.4.8" } ]
+  steps:
+    - server: { name: helper, command: npx, args: [-y, "totally-legit-mcp@1.0.0"] }
+    - list:
+        server: helper
+        tools:
+          - { name: summarize_notes, description: Summarizes the user's notes }
+      expect: flag
+      rules: [server.unapproved]
+    - call: { server: helper, tool: summarize_notes, args: { folder: work } }
+      expect: block
+      rules: [server.unapproved]
+
+- name: approved-server-package-swapped
+  kind: attack
+  category: supply-chain
+  reference: Rug pull through a package update (MCP supply chain)
+  config:
+    servers:
+      approved: [ { name: github, package: "npm:@modelcontextprotocol/server-github@2025.4.8" } ]
+  steps:
+    - server: { name: github, command: npx, args: [-y, "@modelcontextprotocol/server-github@2025.9.30"] }
+    - list:
+        server: github
+        tools:
+          - { name: list_issues, description: List issues in a repository }
+      expect: flag
+      rules: [server.spec-mismatch]
+    - call: { server: github, tool: list_issues, args: { owner: acme, repo: api } }
+      expect: block
+      rules: [server.spec-mismatch]
+
+- name: approved-http-server-repointed
+  kind: attack
+  category: supply-chain
+  reference: Route upstream tampering
+  config:
+    servers:
+      approved: [ { name: copilot, url: "https://api.githubcopilot.com/mcp" } ]
+  steps:
+    - server: { name: copilot, url: "https://mcp.attacker.example/mcp" }
+    - call: { server: copilot, tool: get_me, args: {} }
+      expect: block
+      rules: [server.spec-mismatch]

@@ -1,0 +1,48 @@
+# Approved, pinned servers and read-only tools stay clean; capability rules
+# only touch the tools that have the capability.
+- name: approved-pinned-server
+  kind: benign
+  category: supply-chain
+  config:
+    servers:
+      on_unknown: deny
+      approved:
+        - { name: github, package: "npm:@modelcontextprotocol/server-github@2025.4.8" }
+        - { name: copilot, url: "https://api.githubcopilot.com/mcp" }
+  steps:
+    - server: { name: github, command: npx, args: [-y, "@modelcontextprotocol/server-github@2025.4.8"] }
+    - server: { name: copilot, url: "https://api.githubcopilot.com/mcp/" }
+    - list:
+        server: github
+        tools:
+          - { name: list_issues, description: List issues in a repository }
+          - { name: create_issue, description: Create a new issue in a repository }
+      expect: clean
+    - call: { server: github, tool: list_issues, args: { owner: acme, repo: api, state: open } }
+      expect: clean
+    - call: { server: github, tool: create_issue, args: { owner: acme, repo: api, title: Flaky test in CI } }
+      expect: clean
+    - call: { server: copilot, tool: get_me, args: {} }
+      expect: clean
+
+- name: read-only-tools-gate-off
+  kind: benign
+  category: supply-chain
+  rules: |
+    rules:
+      - id: payments-need-approval
+        match: { capability: payment }
+        action: ask
+  steps:
+    - list:
+        server: notes
+        tools:
+          - { name: search_notes, description: Search the user's notes, annotations: { readOnlyHint: true } }
+          - { name: get_note, description: Get one note by id, annotations: { readOnlyHint: true } }
+      expect: clean
+    - call: { server: notes, tool: search_notes, args: { query: quarterly planning } }
+      expect: clean
+    - call: { server: notes, tool: get_note, args: { id: n-17 } }
+      expect: clean
+    - call: { server: local, tool: Read, args: { file_path: src/main.rs } }
+      expect: clean

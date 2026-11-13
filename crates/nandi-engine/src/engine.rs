@@ -24,16 +24,18 @@ use nandi_core::util::{
     canonical_json, flatten_text, glob_match, mask, now_ms, tool_glob_match, truncate, walk_strings,
 };
 use nandi_core::{
-    A2aMessage, AgentCardSeen, Category, Config, Decision, Direction, Event, EventKind, FileEvent, Finding, LlmRequest,
-    LlmResponse, NetworkEvent, PlanSpec, ProcessEvent, Role, Severity, StateStore, ToolCall, ToolList, ToolResult,
-    Verdict,
+    A2aMessage, AgentCardSeen, Capability, Category, Config, Decision, Direction, Event, EventKind, FileEvent, Finding,
+    LlmRequest, LlmResponse, NetworkEvent, PlanSpec, ProcessEvent, Role, ServerSpec, Severity, StateStore, ToolCall,
+    ToolList, ToolResult, Verdict,
 };
 use nandi_detect::Detector;
 use nandi_policy::{Action, HistoryEntry, PlanTracker, PolicyInput, PolicySet, SessionFacts};
 
 use crate::behavior::Behavior;
 use crate::budget::Budgets;
+use crate::capability::classify_detailed;
 use crate::pins::{PinStatus, Pins, tool_hash};
+use crate::servers::{ServerSummary, Servers, ToolRisk};
 use crate::session::{SessionState, SessionSummary, Sessions};
 
 /// Optional model-based text classifier (prompt injection). Implemented by
@@ -67,6 +69,7 @@ pub struct Engine {
     sessions: Sessions,
     tool_pins: Pins,
     card_pins: Pins,
+    servers: Servers,
     behavior: Behavior,
     budgets: Budgets,
     killed: RwLock<HashSet<String>>,
@@ -84,6 +87,7 @@ impl Engine {
             sessions: Sessions::new(10_000, 2 * 3_600_000, cfg.taint.min_flow_len),
             tool_pins: Pins::new("pin/tool/", store.clone()),
             card_pins: Pins::new("pin/card/", store.clone()),
+            servers: Servers::new(cfg.servers.clone(), store.clone()),
             behavior: Behavior::new(cfg.behavior.clone(), store.clone()),
             budgets: Budgets::new(cfg.budgets.clone(), cfg.behavior.max_calls_per_minute, store.clone()),
             policy: RwLock::new(Arc::new(policy)),
@@ -168,10 +172,35 @@ impl Engine {
         self.sessions.summaries()
     }
 
+    /// Record how MCP server `name` is launched (stdio command line) or
+    /// reached (HTTP URL). Capture points call this at startup; the spec is
+    /// checked against `servers.approved` and, for local programs, hashed.
+    pub fn register_server(&self, name: &str, spec: ServerSpec) {
+        self.servers.register(name, spec, now_ms());
+    }
+
+    /// Every known MCP server with its spec, approval, tools, capabilities
+    /// and risk, riskiest first.
+    pub fn servers(&self) -> Vec<ServerSummary> {
+        self.servers.summaries()
+    }
+
+    /// Capabilities and risk of `server/tool`, when it was listed or called.
+    pub fn tool_risk(&self, server: &str, tool: &str) -> Option<ToolRisk> {
+        self.servers.tool_risk(server, tool)
+    }
+
+    /// Accept the changed local binary of server `name`. Returns false when
+    /// its binary did not change.
+    pub fn accept_server_binary(&self, name: &str) -> bool {
+        self.servers.accept_binary(name)
+    }
+
     /// Persist learned state and drop idle sessions. Call periodically.
     pub fn flush(&self) {
         self.behavior.flush();
         self.budgets.flush();
+        self.servers.flush();
         self.sessions.sweep(now_ms());
     }
 
@@ -182,7 +211,8 @@ impl Engine {
 
     /// Whether `agent` may see `server/tool` in a tool listing.
     pub fn tool_visible(&self, agent: &str, groups: &[String], server: &str, tool: &str) -> bool {
-        self.policy.read().tool_visible(agent, groups, server, tool)
+        let caps = self.servers.capabilities(server, tool);
+        self.policy.read().tool_visible(agent, groups, server, tool, &caps)
     }
 
     // ----- evaluation ----------------------------------------------------------
@@ -251,12 +281,16 @@ impl Engine {
             v
         };
         let mut hidden: Vec<String> = Vec::new();
+        let mut risks: Vec<ToolRisk> = Vec::with_capacity(list.tools.len());
         for tool in &list.tools {
             let id = format!("{server}/{}", tool.name);
             let mut hide = false;
+            let mut drifted = false;
+            let mut description_finding = false;
             if self.cfg.tools.pin {
                 match self.tool_pins.check(&id, &tool_hash(tool)) {
                     PinStatus::Drifted { pinned, seen } => {
+                        drifted = true;
                         d.push(
                             Finding::new(
                                 "tool.drift",
@@ -286,6 +320,7 @@ impl Engine {
             if self.cfg.tools.scan_descriptions {
                 for f in self.detector.scan_tool_definition(server, tool, &all_tools) {
                     hide |= f.verdict == Verdict::Deny;
+                    description_finding |= f.severity >= Severity::High;
                     d.push(f);
                 }
             }
@@ -299,12 +334,27 @@ impl Engine {
                     format!("tool name {} is also offered by another server", tool.name),
                 ));
             }
-            if self.cfg.tools.filter_list && !self.tool_visible(&ev.agent, groups, server, &tool.name) {
+            let class = classify_detailed(tool);
+            if self.cfg.tools.filter_list
+                && !self.policy.read().tool_visible(&ev.agent, groups, server, &tool.name, &class.capabilities)
+            {
                 hide = true;
             }
             if hide {
                 hidden.push(tool.name.clone());
             }
+            let mut risk = ToolRisk::new(&tool.name, class.capabilities, description_finding, drifted);
+            risk.note = class.note;
+            risks.push(risk);
+        }
+        self.servers.record_listing(server, risks, ev.ts_ms);
+        let server_findings = self.servers.findings(server);
+        if server_findings.iter().any(|f| f.verdict == Verdict::Deny) {
+            // Quarantined: nothing of this server is offered to the agent.
+            hidden = list.tools.iter().map(|t| t.name.clone()).collect();
+        }
+        for f in server_findings {
+            d.push(f);
         }
         self.listed.write().insert(server.to_string(), list.tools.iter().map(|t| t.name.clone()).collect());
         if !hidden.is_empty() {
@@ -326,15 +376,16 @@ impl Engine {
             d.push(f);
         }
         self.check_integrity(server, tool, &id, d);
+        let listed = self.listed.read().contains_key(server);
+        for f in self.servers.call_findings(server, listed) {
+            d.push(f);
+        }
 
+        let caps: Vec<Capability> = self.servers.observe_call(server, tool, now);
         let policy = self.policy();
         let outcome = policy.evaluate(
-            &PolicyInput {
-                agent: &ev.agent,
-                groups,
-                session: self.facts(s),
-                action: Action::CallTool { server, tool, args: &call.args },
-            },
+            &PolicyInput::new(&ev.agent, groups, self.facts(s), Action::CallTool { server, tool, args: &call.args })
+                .with_capabilities(&caps),
             &s.history,
         );
         for f in outcome.findings {
@@ -591,12 +642,12 @@ impl Engine {
             d.push(f);
         }
         let outcome = self.policy().evaluate(
-            &PolicyInput {
-                agent: &ev.agent,
+            &PolicyInput::new(
+                &ev.agent,
                 groups,
-                session: self.facts(s),
-                action: Action::LlmRequest { provider: &req.provider, model: &req.model },
-            },
+                self.facts(s),
+                Action::LlmRequest { provider: &req.provider, model: &req.model },
+            ),
             &s.history,
         );
         for f in outcome.findings {
@@ -707,12 +758,12 @@ impl Engine {
         match msg.direction {
             Direction::Outbound => {
                 let outcome = self.policy().evaluate(
-                    &PolicyInput {
-                        agent: &ev.agent,
+                    &PolicyInput::new(
+                        &ev.agent,
                         groups,
-                        session: self.facts(s),
-                        action: Action::A2aSend { peer: &msg.peer, skill: msg.skill.as_deref(), method: &msg.method },
-                    },
+                        self.facts(s),
+                        Action::A2aSend { peer: &msg.peer, skill: msg.skill.as_deref(), method: &msg.method },
+                    ),
                     &s.history,
                 );
                 for f in outcome.findings {

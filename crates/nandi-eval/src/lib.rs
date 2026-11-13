@@ -16,6 +16,7 @@
 //! rules: |                    # optional YAML policy
 //!   rules: []
 //! steps:
+//!   - server: { name: bank, command: npx, args: [-y, "bank-mcp@1.2.3"] }   # or url: https://...
 //!   - list: { server: bank, tools: [ { name: send_money, description: Sends money } ] }
 //!   - user: Pay my rent
 //!   - call: { server: bank, tool: send_money, args: { iban: X } }
@@ -31,7 +32,7 @@ use serde_json::{Map, Value, json};
 use nandi_core::config::Mode;
 use nandi_core::{
     A2aMessage, AgentCardSeen, Config, Decision, Direction, Event, EventKind, LlmRequest, Message, PlanSpec, Role,
-    Source, ToolCall, ToolDef, ToolList, ToolResult, Verdict,
+    ServerSpec, Source, ToolCall, ToolDef, ToolList, ToolResult, Verdict,
 };
 use nandi_engine::Engine;
 use nandi_policy::PolicySet;
@@ -88,6 +89,11 @@ fn default_agent() -> String {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Step {
+    /// Register how an MCP server is launched or reached, as `nandi wrap`
+    /// and the proxy do at startup. Produces no event and takes no
+    /// expectation.
+    #[serde(default)]
+    pub server: Option<ServerStep>,
     #[serde(default)]
     pub list: Option<ListStep>,
     #[serde(default)]
@@ -113,6 +119,29 @@ pub struct Step {
     /// Rule ids that must appear among the findings.
     #[serde(default)]
     pub rules: Vec<String>,
+}
+
+/// A server spec: `command` (+ `args`) for stdio servers, `url` for HTTP.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ServerStep {
+    pub name: String,
+    #[serde(default)]
+    pub command: Option<String>,
+    #[serde(default)]
+    pub args: Vec<String>,
+    #[serde(default)]
+    pub url: Option<String>,
+}
+
+impl ServerStep {
+    fn spec(&self) -> anyhow::Result<ServerSpec> {
+        match (&self.command, &self.url) {
+            (Some(command), None) => Ok(ServerSpec::Stdio { command: command.clone(), args: self.args.clone() }),
+            (None, Some(url)) if self.args.is_empty() => Ok(ServerSpec::Http { url: url.clone() }),
+            _ => anyhow::bail!("server step needs exactly one of `command` (with optional `args`) or `url`"),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -350,6 +379,24 @@ pub fn run_scenario(s: &Scenario, base: &Config, latencies: &mut Vec<u64>) -> Sc
         }
     };
     for (i, step) in s.steps.iter().enumerate() {
+        if let Some(srv) = &step.server {
+            match srv.spec() {
+                Ok(spec) if step.expect.is_none() && step.rules.is_empty() => {
+                    engine.register_server(&srv.name, spec);
+                    continue;
+                }
+                Ok(_) => {
+                    report.passed = false;
+                    report.error = Some(format!("step {i}: a server step takes no expectation"));
+                    return report;
+                }
+                Err(e) => {
+                    report.passed = false;
+                    report.error = Some(format!("step {i}: {e}"));
+                    return report;
+                }
+            }
+        }
         let ev = match step_event(s, step) {
             Ok(ev) => ev,
             Err(e) => {
@@ -518,6 +565,26 @@ mod tests {
         let failed: Vec<&str> = report.scenarios.iter().filter(|r| !r.passed).map(|r| r.name.as_str()).collect();
         assert!(failed.is_empty(), "failed scenarios: {failed:?}\n{text}");
         assert_eq!(report.summary.false_positives, 0, "{text}");
+    }
+
+    #[test]
+    fn server_steps_register_specs() {
+        let yaml = r#"
+name: s
+kind: attack
+category: supply-chain
+config: { servers: { approved: [ { name: gh, package: "npm:srv@1.0.0" } ] } }
+steps:
+  - server: { name: gh, command: npx, args: [-y, "srv@2.0.0"] }
+  - call: { server: gh, tool: list_issues }
+    expect: block
+    rules: [server.spec-mismatch]
+"#;
+        let report = run(&parse(yaml).unwrap(), None);
+        assert!(report.scenarios[0].passed, "{}", render(&report));
+        let bad = yaml.replace("command: npx, args: [-y, \"srv@2.0.0\"]", "url: https://x, command: npx");
+        let report = run(&parse(&bad).unwrap(), None);
+        assert!(report.scenarios[0].error.as_deref().unwrap().contains("exactly one"), "{}", render(&report));
     }
 
     #[test]

@@ -358,6 +358,88 @@ pub async fn pins(r: &Remote, cmd: Option<PinsCmd>, cards: bool, json_out: bool)
     Ok(())
 }
 
+/// One line per server: name, risk, approval, pinning, spec and the
+/// heaviest capabilities.
+pub fn server_line(x: &Value) -> String {
+    let spec = match x.get("package").filter(|p| p.is_object()) {
+        Some(p) => {
+            let v = p.get("version").and_then(Value::as_str).map(|v| format!("@{v}")).unwrap_or_default();
+            format!("{}:{}{v}", s(p, "ecosystem"), s(p, "name"))
+        }
+        None => match x.get("spec") {
+            Some(spec) if spec.get("url").is_some() => s(spec, "url").to_string(),
+            Some(spec) => {
+                let args: Vec<&str> = spec["args"].as_array().into_iter().flatten().filter_map(Value::as_str).collect();
+                format!("{} {}", s(spec, "command"), args.join(" ")).trim_end().to_string()
+            }
+            None => "(seen through hooks)".into(),
+        },
+    };
+    let pinned = match x.get("pinned").and_then(Value::as_bool) {
+        Some(true) => "pinned",
+        Some(false) => "UNPINNED",
+        None => "-",
+    };
+    let approval = match s(x, "approval") {
+        "not_required" => "-",
+        "approved" => "approved",
+        "unapproved" => "UNAPPROVED",
+        "mismatch" => "MISMATCH",
+        other => other,
+    };
+    let caps: Vec<&str> = x["capabilities"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .filter(|c| *c != "read_only")
+        .take(4)
+        .collect();
+    let mut flags = String::new();
+    if x["quarantined"] == json!(true) {
+        flags.push_str(" QUARANTINED");
+    }
+    if x["binary_changed"] == json!(true) {
+        flags.push_str(" BINARY-CHANGED");
+    }
+    format!(
+        "{:<20} {:<8} {:>3}  {:<10} {:<8} {:<48} {}{flags}",
+        s(x, "name"),
+        s(x, "level"),
+        x["score"],
+        approval,
+        pinned,
+        clip(&spec, 48),
+        if caps.is_empty() { "-".to_string() } else { caps.join(",") }
+    )
+}
+
+fn clip(s: &str, n: usize) -> String {
+    if s.chars().count() <= n {
+        s.to_string()
+    } else {
+        format!("{}...", s.chars().take(n.saturating_sub(3)).collect::<String>())
+    }
+}
+
+pub async fn servers(r: &Remote, json_out: bool) -> anyhow::Result<()> {
+    let v = r.get("/v1/servers").await?;
+    if json_out {
+        print_json(&v);
+        return Ok(());
+    }
+    let list = v.as_array().cloned().unwrap_or_default();
+    if list.is_empty() {
+        println!("no MCP servers seen yet");
+        return Ok(());
+    }
+    println!("{:<20} {:<8} {:>3}  {:<10} {:<8} {:<48} CAPABILITIES", "NAME", "RISK", "", "APPROVAL", "PINNED", "SPEC");
+    for x in list {
+        println!("{}", server_line(&x));
+    }
+    Ok(())
+}
+
 /// Print live events until interrupted.
 pub async fn tail(r: &Remote, agent: Option<&str>, min_verdict: Option<&str>, json_out: bool) -> anyhow::Result<()> {
     let mut q = Vec::new();
@@ -422,6 +504,25 @@ mod tests {
     fn segments_are_encoded() {
         assert_eq!(seg("a b/c"), "a%20b%2Fc");
         assert_eq!(seg("bot-1.x"), "bot-1.x");
+    }
+
+    #[test]
+    fn server_lines() {
+        let x = json!({
+            "name": "github", "level": "high", "score": 62, "approval": "unapproved", "pinned": false,
+            "package": {"ecosystem": "npm", "name": "@scope/srv", "pinned": false},
+            "capabilities": ["payment", "external_send", "read_only"], "quarantined": true, "binary_changed": false
+        });
+        let line = server_line(&x);
+        assert!(line.starts_with("github"), "{line}");
+        for part in ["high", "62", "UNAPPROVED", "UNPINNED", "npm:@scope/srv", "payment,external_send", "QUARANTINED"] {
+            assert!(line.contains(part), "{part} missing in {line}");
+        }
+        let http = json!({"name": "web", "level": "low", "score": 0, "approval": "not_required",
+            "spec": {"transport": "http", "url": "https://x/mcp"}, "capabilities": []});
+        let line = server_line(&http);
+        assert!(line.contains("https://x/mcp") && line.ends_with(" -"), "{line}");
+        assert_eq!(clip("abcdef", 5), "ab...");
     }
 
     #[test]

@@ -151,6 +151,11 @@ enum Cmd {
         #[command(flatten)]
         admin: AdminOpts,
     },
+    /// MCP servers with their package, approval, pinning and risk (admin API).
+    Servers {
+        #[command(flatten)]
+        admin: AdminOpts,
+    },
     /// Stream live events (admin API).
     Tail {
         #[arg(long)]
@@ -674,6 +679,10 @@ async fn dispatch(cli: Cli) -> anyhow::Result<i32> {
         }
         Cmd::Pins { cmd, cards, admin } => {
             remote::pins(&remote_for(&admin, config)?, cmd, cards, admin.json).await?;
+            Ok(0)
+        }
+        Cmd::Servers { admin } => {
+            remote::servers(&remote_for(&admin, config)?, admin.json).await?;
             Ok(0)
         }
         Cmd::Tail { agent, min_verdict, admin } => {

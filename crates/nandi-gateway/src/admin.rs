@@ -158,6 +158,8 @@ fn build(app: Arc<App>, shutdown: watch::Receiver<bool>) -> Router {
         .route("/v1/pins/tools", get(tool_pins))
         .route("/v1/pins/tools/approve", post(tool_pin_approve))
         .route("/v1/pins/tools/forget", post(tool_pin_forget))
+        .route("/v1/servers", get(servers))
+        .route("/v1/servers/accept-binary", post(server_accept_binary))
         .route("/v1/pins/cards", get(card_pins))
         .route("/v1/pins/cards/approve", post(card_pin_approve))
         .route("/v1/pins/cards/forget", post(card_pin_forget))
@@ -527,13 +529,15 @@ struct PinBody {
     id: String,
 }
 
-fn pin_list(pins: &nandi_engine::pins::Pins) -> ApiResult {
+/// Pins as JSON objects with their `id`. `extra` adds fields per pin.
+fn pin_list(pins: &nandi_engine::pins::Pins, extra: impl Fn(&str, &mut serde_json::Map<String, Value>)) -> ApiResult {
     let v: Vec<Value> = pins
         .list()
         .into_iter()
         .map(|(id, pin)| {
             let mut v = serde_json::to_value(pin).unwrap_or_default();
             if let Some(obj) = v.as_object_mut() {
+                extra(&id, obj);
                 obj.insert("id".into(), Value::String(id));
             }
             v
@@ -567,7 +571,15 @@ fn pin_forget(pins: &nandi_engine::pins::Pins, body: &Bytes) -> ApiResult {
 }
 
 async fn tool_pins(State(st): State<AdminState>) -> ApiResult {
-    pin_list(st.app.engine.tool_pins())
+    let engine = &st.app.engine;
+    pin_list(engine.tool_pins(), |id, obj| {
+        let Some((server, tool)) = id.split_once('/') else { return };
+        if let Some(risk) = engine.tool_risk(server, tool) {
+            obj.insert("capabilities".into(), json!(risk.capabilities));
+            obj.insert("score".into(), json!(risk.score));
+            obj.insert("level".into(), json!(risk.level));
+        }
+    })
 }
 
 async fn tool_pin_approve(State(st): State<AdminState>, body: Bytes) -> ApiResult {
@@ -579,7 +591,7 @@ async fn tool_pin_forget(State(st): State<AdminState>, body: Bytes) -> ApiResult
 }
 
 async fn card_pins(State(st): State<AdminState>) -> ApiResult {
-    pin_list(st.app.engine.card_pins())
+    pin_list(st.app.engine.card_pins(), |_, _| {})
 }
 
 async fn card_pin_approve(State(st): State<AdminState>, body: Bytes) -> ApiResult {
@@ -588,6 +600,27 @@ async fn card_pin_approve(State(st): State<AdminState>, body: Bytes) -> ApiResul
 
 async fn card_pin_forget(State(st): State<AdminState>, body: Bytes) -> ApiResult {
     pin_forget(st.app.engine.card_pins(), &body)
+}
+
+// ----- servers ---------------------------------------------------------------------
+
+async fn servers(State(st): State<AdminState>) -> ApiResult {
+    ok_json(st.app.engine.servers())
+}
+
+#[derive(Debug, Deserialize)]
+struct ServerBody {
+    name: String,
+}
+
+async fn server_accept_binary(State(st): State<AdminState>, body: Bytes) -> ApiResult {
+    let b: ServerBody =
+        serde_json::from_slice(&body).map_err(|e| ApiError::bad_request(format!("expected {{\"name\": ...}}: {e}")))?;
+    if !st.app.engine.accept_server_binary(&b.name) {
+        return Err(ApiError::not_found(format!("no changed binary for server {}", b.name)));
+    }
+    tracing::info!(server = %b.name, "server binary accepted via admin API");
+    ok_json(json!({ "ok": true, "name": b.name }))
 }
 
 // ----- behaviour, usage, policy, audit, hooks ----------------------------------------
@@ -871,6 +904,46 @@ mod tests {
         assert_eq!(post_json(&r, "/v1/pins/tools/forget", Some(body.clone())).await.0, StatusCode::OK);
         assert!(pins.list().is_empty());
         assert_eq!(post_json(&r, "/v1/pins/tools/forget", Some(json!({}))).await.0, StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn servers_list_risk_and_tool_pins_carry_capabilities() {
+        let app = ephemeral(Config::default());
+        let r = router(app.clone());
+        app.engine.register_server(
+            "github",
+            nandi_core::ServerSpec::Stdio { command: "npx".into(), args: vec!["-y".into(), "srv-gh@1.2.3".into()] },
+        );
+        let list = Event::new(
+            Source::Eval,
+            "bot",
+            "s1",
+            EventKind::ToolList(nandi_core::ToolList {
+                server: "github".into(),
+                tools: vec![nandi_core::ToolDef {
+                    name: "delete_repository".into(),
+                    description: "Delete a repository".into(),
+                    input_schema: json!({"type": "object"}),
+                    annotations: Value::Null,
+                }],
+            }),
+        );
+        app.decide(list, &[]).await;
+        let (s, v) = get_json(&r, "/v1/servers").await;
+        assert_eq!(s, StatusCode::OK);
+        assert_eq!(v[0]["name"], "github");
+        assert_eq!(v[0]["package"]["name"], "srv-gh");
+        assert_eq!(v[0]["pinned"], true);
+        assert_eq!(v[0]["approval"], "not_required");
+        assert_eq!(v[0]["level"], "medium");
+        assert_eq!(v[0]["capabilities"], json!(["data_deletion"]));
+        let (_, pins) = get_json(&r, "/v1/pins/tools").await;
+        assert_eq!(pins[0]["id"], "github/delete_repository");
+        assert_eq!(pins[0]["capabilities"], json!(["data_deletion"]));
+        assert_eq!(pins[0]["score"], 30);
+        let missing = post_json(&r, "/v1/servers/accept-binary", Some(json!({"name": "github"}))).await;
+        assert_eq!(missing.0, StatusCode::NOT_FOUND);
+        assert_eq!(post_json(&r, "/v1/servers/accept-binary", Some(json!({}))).await.0, StatusCode::BAD_REQUEST);
     }
 
     #[tokio::test]

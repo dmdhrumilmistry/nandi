@@ -28,6 +28,7 @@ argument is above 1000. The finding is reported as `policy.large-payment`.
 |---|---|---|
 | `kind` | `tool_call` (default), `list_tools`, `llm`, `a2a` | `kind: llm` |
 | `agent` | agent id (glob) | `agent: "billing-*"` |
+| `capability` | what the tool can do, a name, glob or list ([capabilities](capabilities.md)) | `capability: [payment, external_send]` |
 | `group` | one of the agent's groups (glob) | `group: interns` |
 | `server` | MCP server or route name (glob) | `server: github` |
 | `tool` | tool name, or `server/tool` (glob) | `tool: "github/delete_*"` |

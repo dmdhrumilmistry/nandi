@@ -18,6 +18,7 @@ Relative paths are resolved against the directory of the configuration file.
 | `identity` | anonymous access, API keys, JWT, Biscuit | [Identity](../operations/identity.md) |
 | `policy` | default action, rule and Cedar files | [Rules](../policy/rules.md), [Cedar](../policy/cedar.md) |
 | `tools` | pinning, drift and unlisted verdicts, description scanning, list filtering | [MCP servers](../guides/mcp.md) |
+| `servers` | approved MCP servers, verdicts for unknown, unpinned and changed servers | [Server risk](../policy/capabilities.md#server-supply-chain) |
 | `taint`, `plan` | untrusted content, consequential tools, value flow, spotlighting, plans | [Data flow](../policy/data-flow.md) |
 | `detect` | secrets, PII, injection, SSRF, honeytokens | [Detection](../policy/detection.md) |
 | `behavior`, `budgets` | loops, rate limits, anomaly scoring, daily budgets | below |

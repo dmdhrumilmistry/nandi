@@ -20,6 +20,8 @@ page); without a token they only answer loopback clients.
 | POST | `/v1/agents/{agent}/kill`, `/revive` | kill switch |
 | GET | `/v1/pins/tools`, `/v1/pins/cards` | pins |
 | POST | `/v1/pins/tools/approve`, `/forget` (same for cards) | body `{"id": "server/tool"}` |
+| GET | `/v1/servers` | MCP servers with risk score and level, capabilities, package spec, approval, pinning and binary-change flags |
+| POST | `/v1/servers/accept-binary` | accept a changed server binary, body `{"name": "server"}` |
 | GET, DELETE | `/v1/behavior/{agent}` | behaviour model, reset |
 | GET | `/v1/usage` | token and tool-call usage today |
 | POST | `/v1/policy/reload` | reload policy files |

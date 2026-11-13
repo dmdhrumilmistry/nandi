@@ -85,6 +85,18 @@ tools:
   # Hide tools an agent may never call from its tools/list.
   filter_list: true
 
+servers:
+  # Registry packages without an exact version (`npx pkg`, `uvx pkg`).
+  on_unpinned: alert
+  # A local server binary or script that changed since it was first seen.
+  on_binary_change: alert
+  # Servers not listed below. Only applies once `approved` has entries; with
+  # deny the server's tools are hidden and its calls denied.
+  on_unknown: alert
+  approved: []
+  #  - { name: github, package: "npm:@modelcontextprotocol/server-github@2025.4.8" }
+  #  - { name: copilot, url: "https://api.githubcopilot.com/mcp" }
+
 taint:
   # A session that read untrusted content (tool output, web pages, other
   # agents) is tainted; consequential tools are then escalated.

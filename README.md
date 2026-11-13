@@ -53,6 +53,10 @@ deterministic decision:
 - **Tool integrity.** MCP tool definitions are pinned. A server that quietly
   rewrites a description is caught, and poisoned or shadowing descriptions are
   flagged when they are listed.
+- **Capabilities and server risk.** Every tool is classified by what it can
+  do (run commands, move money, send email, delete data), so a rule can say
+  `capability: payment` instead of guessing at names. Servers are ranked by
+  risk, and unpinned, unapproved or swapped server packages are flagged.
 - **Detection.** Secrets, PII, honeytokens, prompt injection, exfiltration
   links and SSRF targets, including through base64, hex and URL encoding.
 - **Controls.** Human approvals, a kill switch, token and call budgets,
@@ -135,6 +139,7 @@ ours, so treat it as a regression suite rather than a benchmark; see
   [host sensor](docs/guides/host-sensor.md),
   [ML classifier](docs/guides/ml-classifier.md)
 - Policy: [rules](docs/policy/rules.md), [Cedar](docs/policy/cedar.md),
+  [capabilities and server risk](docs/policy/capabilities.md),
   [data flow](docs/policy/data-flow.md), [detection](docs/policy/detection.md),
   [testing](docs/policy/testing.md)
 - Operations: [monitor to enforce](docs/operations/enforce.md),

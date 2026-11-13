@@ -48,6 +48,7 @@ pub struct Config {
     pub identity: IdentityConfig,
     pub policy: PolicyConfig,
     pub tools: ToolsConfig,
+    pub servers: ServersConfig,
     pub taint: TaintConfig,
     pub detect: DetectConfig,
     pub behavior: BehaviorConfig,
@@ -303,6 +304,59 @@ impl Default for ToolsConfig {
             filter_list: true,
         }
     }
+}
+
+/// Approved MCP servers and what happens to the others.
+///
+/// The `on_unknown` gate only applies once `approved` has entries, so an
+/// install without an allow-list never alerts on every server.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ServersConfig {
+    /// Verdict for a server not in `approved` (only when `approved` is not
+    /// empty). With `deny` the server is quarantined: its tools are hidden
+    /// from `tools/list` and every call is denied.
+    pub on_unknown: Verdict,
+    /// Verdict for a stdio server launched from a registry package without
+    /// an exact version (`npx pkg`, `uvx pkg`, `docker run image:latest`).
+    pub on_unpinned: Verdict,
+    /// Verdict when a local server binary or script differs from the one
+    /// first seen under the same server name.
+    pub on_binary_change: Verdict,
+    /// The allow-list. A server matches an entry by name; the entry's
+    /// `package`, `url` or `sha256`, when given, must match too.
+    pub approved: Vec<ApprovedServer>,
+}
+
+impl Default for ServersConfig {
+    fn default() -> Self {
+        Self {
+            on_unknown: Verdict::Alert,
+            on_unpinned: Verdict::Alert,
+            on_binary_change: Verdict::Alert,
+            approved: Vec::new(),
+        }
+    }
+}
+
+/// One entry of `servers.approved`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ApprovedServer {
+    /// Server name as used in policies (route name, `nandi wrap --server`,
+    /// or the `mcp__<server>__` part of a Claude Code tool name). Globs
+    /// allowed.
+    pub name: String,
+    /// `ecosystem:name[@version]`, e.g. `npm:@scope/pkg@1.2.3`,
+    /// `pypi:mcp-server-git==2025.1.14`, `oci:ghcr.io/org/image@sha256:...`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub package: Option<String>,
+    /// Upstream URL of an HTTP server.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    /// Hex SHA-256 of a local server binary or script.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sha256: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -757,6 +811,32 @@ taint:
         assert_eq!(c.routes[0].timeout_secs, 300);
         assert_eq!(c.taint.on_tainted_flow, Verdict::Deny);
         assert!(Config::from_yaml("mdoe: enforce").is_err());
+    }
+
+    #[test]
+    fn parses_servers_section() {
+        let c = Config::from_yaml("").unwrap();
+        assert_eq!(c.servers.on_unknown, Verdict::Alert);
+        assert_eq!(c.servers.on_unpinned, Verdict::Alert);
+        assert!(c.servers.approved.is_empty());
+        let c = Config::from_yaml(
+            r#"
+servers:
+  on_unknown: deny
+  on_unpinned: ask
+  approved:
+    - { name: github, package: "npm:@modelcontextprotocol/server-github@2025.4.8" }
+    - { name: web, url: "https://api.githubcopilot.com/mcp" }
+    - { name: tools, sha256: "00ff" }
+"#,
+        )
+        .unwrap();
+        assert_eq!(c.servers.on_unknown, Verdict::Deny);
+        assert_eq!(c.servers.on_unpinned, Verdict::Ask);
+        assert_eq!(c.servers.approved.len(), 3);
+        assert_eq!(c.servers.approved[1].url.as_deref(), Some("https://api.githubcopilot.com/mcp"));
+        assert!(Config::from_yaml("servers: { approved: [ { name: x, pkg: y } ] }").is_err());
+        assert!(Config::from_yaml("servers: { on_unknwn: deny }").is_err());
     }
 
     #[test]
