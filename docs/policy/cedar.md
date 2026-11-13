@@ -12,7 +12,7 @@ groups; use YAML rules for argument checks and sequences.
 |---|---|
 | principal | `Agent::"<agent id>"`, a member of `Group::"<group>"` for each of its groups |
 | action | `Action::"call_tool"`, `"list_tools"`, `"llm_request"` or `"a2a_send"` |
-| resource | `Tool::"<server>/<tool>"` (in `Server::"<server>"`, attributes `name` and `server`), `Model::"<provider>/<model>"`, `Peer::"<peer>"` |
+| resource | `Tool::"<server>/<tool>"` (in `Server::"<server>"`, attributes `name`, `server` and `capabilities`, a set such as `["payment"]`; see [capabilities](capabilities.md)), `Model::"<provider>/<model>"`, `Peer::"<peer>"` |
 | context | `args` (the call's arguments), `session` (`tainted`, `risk` from 0 to 100, `calls`), `method` for A2A |
 
 Arguments are made Cedar-safe: floats become strings, nulls are dropped,

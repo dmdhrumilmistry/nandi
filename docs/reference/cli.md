@@ -426,6 +426,22 @@ Options:
   -h, --help                   Print help
 ```
 
+### nandi servers
+
+```text
+MCP servers with their package, approval, pinning and risk (admin API)
+
+Usage: nandi servers [OPTIONS]
+
+Options:
+  -c, --config <CONFIG>        Configuration file [env: NANDI_CONFIG=] [default: nandi.yaml]
+      --log-level <LOG_LEVEL>  Log filter (error, warn, info, debug, trace or a tracing directive) [env: NANDI_LOG=] [default: info]
+      --admin <URL>            Admin API base URL (default: `admin.listen` from the config, else http://127.0.0.1:8788)
+      --token <TOKEN>          Admin bearer token (default: `admin.token` from the config) [env: NANDI_ADMIN_TOKEN]
+      --json                   Print raw JSON instead of a summary
+  -h, --help                   Print help
+```
+
 ### nandi tail
 
 ```text
