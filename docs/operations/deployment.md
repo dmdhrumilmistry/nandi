@@ -25,7 +25,7 @@ as uid 65532.
 ```sh
 docker run --rm -p 8787:8787 -p 8788:8788 \
   -v "$PWD/nandi.yaml:/etc/nandi/nandi.yaml:ro" -v nandi-data:/var/lib/nandi \
-  -e NANDI_ADMIN_TOKEN=change-me dmdhrumilmistry/nandi:0.1.0
+  -e NANDI_ADMIN_TOKEN=change-me dmdhrumilmistry/nandi:0.2.0
 ```
 
 To build it yourself:

@@ -23,7 +23,7 @@ locations, for example every checkout under `~/src`.
 
 ```text
 $ nandi discover
-AI footprint of dev-laptop (nandi 0.1.0)
+AI footprint of dev-laptop (nandi 0.2.0)
 
 Clients
   Claude Code  1 of 3 servers via nandi  nandi hook: no  ~/.claude, ~/.claude.json

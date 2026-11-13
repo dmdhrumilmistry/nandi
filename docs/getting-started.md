@@ -16,7 +16,7 @@ cargo install --locked --git https://github.com/dmdhrumilmistry/nandi nandi
 **Docker** (`linux/amd64` and `linux/arm64`):
 
 ```sh
-docker pull dmdhrumilmistry/nandi:0.1.0
+docker pull dmdhrumilmistry/nandi:0.2.0
 ```
 
 **Kubernetes:** the [Helm chart](operations/deployment.md#kubernetes).
