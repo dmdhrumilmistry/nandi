@@ -123,7 +123,9 @@ $ nandi tail
 Test policy against recorded traffic before enforcing it with `nandi replay`,
 or against single events with `nandi policy test`. Ready-made packs for coding
 agents, payments, production access and outbound messages ship in the binary:
-`nandi policy packs`. See
+`nandi policy packs`. Policy can also be written in the dashboard, where every
+change is previewed against recent traffic and approved by a second person.
+See
 [Writing rules](docs/policy/rules.md) and [Cedar policies](docs/policy/cedar.md).
 
 ## Footprint
@@ -151,6 +153,7 @@ ours, so treat it as a regression suite rather than a benchmark; see
   [ML classifier](docs/guides/ml-classifier.md)
 - Policy: [rules](docs/policy/rules.md), [Cedar](docs/policy/cedar.md),
   [capabilities and server risk](docs/policy/capabilities.md),
+  [managing policy in the dashboard](docs/policy/changes.md),
   [policy packs](docs/policy/packs.md),
   [data flow](docs/policy/data-flow.md), [detection](docs/policy/detection.md),
   [testing](docs/policy/testing.md)

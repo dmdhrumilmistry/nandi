@@ -41,6 +41,7 @@ NAV = [
         ("policy/rules.md", "Writing rules"),
         ("policy/cedar.md", "Cedar policies"),
         ("policy/capabilities.md", "Capabilities and server risk"),
+        ("policy/changes.md", "Managing policy in the dashboard"),
         ("policy/data-flow.md", "Data flow and taint"),
         ("policy/detection.md", "Detection"),
         ("policy/packs.md", "Policy packs"),

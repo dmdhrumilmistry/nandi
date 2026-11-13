@@ -65,6 +65,8 @@ pub struct App {
     pub card_keys: TrustedKeys,
     /// Users of the admin API and dashboard.
     pub users: crate::users::Users,
+    /// Policy documents and change requests from the dashboard.
+    pub policies: crate::policies::Policies,
     pub started: Instant,
     /// An ML classifier runs inside evaluation; it can take hundreds of
     /// milliseconds, so evaluation is marked as blocking.
@@ -80,7 +82,9 @@ impl App {
         let key = resolve(base_dir, &cfg.audit.signing_key.clone().unwrap_or_else(|| data_dir.join("audit.key")));
         let log = Arc::new(AuditLog::open(&db, &key).with_context(|| format!("opening {}", db.display()))?);
         let store: Arc<dyn StateStore> = log.clone();
-        let policy = PolicySet::load(&cfg.policy, base_dir).context("loading policy")?;
+        // Policy files plus the documents written in the dashboard.
+        let docs = crate::policies::Policies::new(store.clone());
+        let policy = PolicySet::load_with(&cfg.policy, base_dir, &docs.sources()).context("loading policy")?;
         for warning in policy.validate() {
             tracing::warn!("policy: {warning}");
         }
@@ -128,6 +132,7 @@ impl App {
             Recorder::start(audit.clone(), cfg.audit.clone(), cfg.telemetry.clone(), client.clone(), metrics.clone());
         let approvals = ApprovalBroker::new(cfg.approvals.clone(), client.clone(), metrics.clone());
         let users = crate::users::Users::new(&cfg.admin, store.clone());
+        let policies = crate::policies::Policies::new(store.clone());
         let app = Arc::new(App {
             base_dir: base_dir.to_path_buf(),
             engine: Arc::new(engine),
@@ -139,6 +144,7 @@ impl App {
             client,
             card_keys,
             users,
+            policies,
             started: Instant::now(),
             blocking_eval,
             cfg,
@@ -182,6 +188,28 @@ impl App {
         self.auth.revoke(&id)
     }
 
+    /// Whether policy documents and change requests are allowed: the
+    /// `policy.changes.enabled` setting, else only without managed settings.
+    pub fn policy_changes_enabled(&self) -> bool {
+        self.cfg.policy.changes.enabled.unwrap_or(self.cfg.managed_sources.is_empty())
+    }
+
+    /// Whether someone other than `author` could approve a policy change.
+    pub fn others_can_approve(&self, author: &str) -> bool {
+        use crate::users::{BREAK_GLASS, Permission};
+        let users = self
+            .users
+            .list()
+            .iter()
+            .filter(|u| {
+                !u.disabled
+                    && u.name != author
+                    && u.roles.iter().any(|r| crate::users::grants(*r).contains(&Permission::PolicyApprove))
+            })
+            .count();
+        users > 0 || (self.cfg.admin.token.is_some() && author != BREAK_GLASS)
+    }
+
     /// Record an administrative action in the audit log (and the live
     /// stream), attributed to `who`.
     pub fn record_admin(
@@ -205,7 +233,7 @@ impl App {
 
     /// Reload policy files from disk and swap them in.
     pub fn reload_policy(&self) -> anyhow::Result<Vec<String>> {
-        let policy = PolicySet::load(&self.cfg.policy, &self.base_dir)?;
+        let policy = PolicySet::load_with(&self.cfg.policy, &self.base_dir, &self.policies.sources())?;
         let warnings = policy.validate();
         self.engine.set_policy(policy);
         Ok(warnings)

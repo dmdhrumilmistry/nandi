@@ -1,4 +1,4 @@
-//! Policy packs bundled with the binary (`nandi policy packs`).
+//! Policy packs bundled with the binary (`nandi policy packs`, the dashboard).
 //!
 //! Each pack is an ordinary rule file from `examples/packs`, ready to save
 //! under `policies/` and list in `policy.rules`.
@@ -50,7 +50,7 @@ mod tests {
         let examples = include_str!("../../../examples/policies/rules.yaml");
         let mut sources = vec![examples];
         sources.extend(PACKS.iter().map(|p| p.yaml));
-        let set = nandi_policy::PolicySet::from_sources(Default::default(), None, None, &sources).unwrap();
+        let set = crate::PolicySet::from_sources(Default::default(), None, None, &sources).unwrap();
         assert!(set.validate().is_empty(), "{:?}", set.validate());
     }
 }

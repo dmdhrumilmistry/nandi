@@ -16,6 +16,7 @@ pub mod hook;
 pub mod metrics;
 pub mod osv;
 pub mod otlp;
+pub mod policies;
 pub mod proxy;
 pub mod recorder;
 pub mod stdio;

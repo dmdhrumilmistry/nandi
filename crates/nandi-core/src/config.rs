@@ -399,6 +399,29 @@ pub struct PolicyConfig {
     pub cedar_entities: Option<PathBuf>,
     /// YAML rule files (argument predicates, sequences, budgets).
     pub rules: Vec<PathBuf>,
+    /// Policies written in the dashboard or through the admin API.
+    pub changes: PolicyChangesConfig,
+}
+
+/// Policy documents managed in the dashboard, with change requests.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct PolicyChangesConfig {
+    /// Allow policy documents and change requests. Unset: allowed, unless
+    /// managed settings (MDM) apply, so a fleet's policy cannot be loosened
+    /// from a laptop's dashboard unless IT allows it explicitly.
+    pub enabled: Option<bool>,
+    /// A second person approves each change, whenever someone other than
+    /// the author can approve. With nobody else, the author applies it.
+    pub require_review: bool,
+    /// Recorded events replayed to preview a change's impact.
+    pub preview_events: usize,
+}
+
+impl Default for PolicyChangesConfig {
+    fn default() -> Self {
+        Self { enabled: None, require_review: true, preview_events: 2000 }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
