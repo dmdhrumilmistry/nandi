@@ -29,6 +29,10 @@ Path to a YAML file to install as C:\ProgramData\nandi\managed.yaml.
 .PARAMETER NoTasks
 Install the binary and files only, without scheduled tasks.
 
+.PARAMETER AgentHooks
+Enforce nandi hooks in every coding agent that supports administrator-
+enforced hooks (Claude Code, Codex, Gemini CLI, Copilot CLI, Windsurf).
+
 .EXAMPLE
 powershell.exe -ExecutionPolicy Bypass -File Install-Nandi.ps1 -ManagedSettings .\managed.yaml
 #>
@@ -37,7 +41,8 @@ param(
     [string]$Version = "latest",
     [string[]]$Packs = @("coding-agent", "payments"),
     [string]$ManagedSettings,
-    [switch]$NoTasks
+    [switch]$NoTasks,
+    [switch]$AgentHooks
 )
 
 $ErrorActionPreference = "Stop"
@@ -122,6 +127,11 @@ try {
         Copy-Item $ManagedSettings "$DataDir\managed.yaml" -Force
         & $Exe managed
         if ($LASTEXITCODE -ne 0) { throw "The managed settings are not valid; see above." }
+    }
+
+    if ($AgentHooks) {
+        & $Exe hook-config all --managed --write
+        if ($LASTEXITCODE -ne 0) { Log "some agent hooks need attention, see above" }
     }
 
     if (-not $NoTasks) {

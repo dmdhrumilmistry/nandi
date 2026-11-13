@@ -107,7 +107,11 @@ which is why the fleet gets the report token and never the admin token.
    `3 of 4 MCP servers via nandi; hooks 1 of 2`, and starts with `all:`
    when nothing bypasses nandi. A smart group on "does not start with
    all" finds the Macs to follow up.
-4. **Coding agents.** Push `deploy/mdm/claude-code-managed-settings.json` as
+4. **Coding agents.** Set parameter 7 to `agent-hooks` and the install
+   script enforces nandi hooks for every agent that supports it, with
+   `nandi hook-config all --managed --write`: Claude Code, Codex, Gemini
+   CLI, Copilot CLI and Windsurf (see [Coding agents](../guides/coding-agents.md)).
+   Alternatively push `deploy/mdm/claude-code-managed-settings.json` as
    Claude Code's managed settings file. On macOS that is
    `/Library/Application Support/ClaudeCode/managed-settings.json`; see
    Claude Code's [settings documentation](https://docs.claude.com/en/docs/claude-code/settings)
@@ -140,8 +144,9 @@ to `~/Library/Logs/nandi.log`.
    `C:\ProgramData\nandi` writable by administrators only and writes the
    packs there. It also registers two tasks that run at every user's logon:
    `nandi` (`nandi run`) and `nandi discover` (also every 6 hours).
-3. **Coding agents.** Deploy the Claude Code managed settings file in the
-   same way. On Windows its command should name the config as
+3. **Coding agents.** `Install-Nandi.ps1 -AgentHooks` enforces nandi hooks
+   for every agent that supports it (`nandi hook-config all --managed --write`),
+   or deploy the Claude Code managed settings file yourself. On Windows its command should name the config as
    `%LOCALAPPDATA%\nandi\nandi.yaml`.
 
 Each user's nandi keeps its data in `%LOCALAPPDATA%\nandi\nandi-data`.
@@ -182,6 +187,7 @@ Put pieces that differ by team into `/etc/nandi/managed.d/` (for example
 Managed settings control how nandi behaves. They cannot make an agent use
 nandi. A user who points an agent straight at an API, or removes a wrapped
 MCP server from a client config, bypasses it. Two things close that gap:
-- the managed Claude Code hooks, which users cannot remove
+- the managed hooks of Claude Code, Codex, Copilot CLI and Windsurf, which
+  users cannot remove
 - the footprint reports, which show every server that bypasses nandi, per
   machine

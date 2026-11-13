@@ -6,6 +6,9 @@
 #   Jamf parameter 5: policy packs to install, comma separated
 #                     (default: coding-agent,payments)
 #   Jamf parameter 6: "no-agents" to skip the per-user launch agents
+#   Jamf parameter 7: "agent-hooks" to enforce nandi hooks in every coding
+#                     agent that supports administrator-enforced hooks
+#                     (Claude Code, Codex, Gemini CLI, Copilot CLI, Windsurf)
 #
 # What it does:
 #   - downloads the release for this Mac's architecture from GitHub and
@@ -24,6 +27,7 @@ set -euo pipefail
 VERSION="${4:-latest}"
 PACKS="${5:-coding-agent,payments}"
 AGENTS="${6:-}"
+AGENT_HOOKS="${7:-}"
 REPO="dmdhrumilmistry/nandi"
 PREFIX="/usr/local/bin"
 SUPPORT="/Library/Application Support/nandi"
@@ -73,6 +77,12 @@ for p in "${pack_list[@]}"; do
 done
 chown -R root:wheel "$SUPPORT"
 chmod -R go-w "$SUPPORT"
+
+if [ "$AGENT_HOOKS" = "agent-hooks" ]; then
+  # Writes each agent's system-wide hook file; existing files are merged
+  # (JSON) or left alone with a message (TOML).
+  "$PREFIX/nandi" hook-config all --managed --write || log "some agent hooks need attention, see above"
+fi
 
 [ "$AGENTS" = "no-agents" ] && { log "done (no launch agents)"; exit 0; }
 

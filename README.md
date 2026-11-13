@@ -91,7 +91,7 @@ Then connect an agent in whichever way fits:
 |---|---|
 | Agents on the OpenAI, Anthropic or Gemini SDKs | `OPENAI_BASE_URL=http://127.0.0.1:8787/openai/v1` ([proxy guide](docs/guides/proxy.md)) |
 | MCP servers in Claude Desktop, Cursor or Claude Code | `nandi wrap --server github -- npx -y @modelcontextprotocol/server-github` ([MCP guide](docs/guides/mcp.md)) |
-| Claude Code or Cursor's built-in tools | a `nandi hook claude-code` or `nandi hook cursor` hook ([hooks guide](docs/guides/coding-agents.md)) |
+| Coding agents' built-in tools: Claude Code, Codex, Gemini CLI, Copilot CLI, Cursor, Windsurf, Devin | `nandi hook-config all --write` installs a `nandi hook` for each; one policy covers them all ([coding agents](docs/guides/coding-agents.md)) |
 | Agents on a Linux host | `sensor.enabled: true` to watch their processes, files and connections ([host sensor](docs/guides/host-sensor.md)) |
 
 ## A policy, and what it does
