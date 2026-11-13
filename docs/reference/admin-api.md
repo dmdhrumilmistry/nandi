@@ -17,7 +17,7 @@ page); without a token they only answer loopback clients.
 | GET | `/v1/audit/admin?actor=&action=&limit=` | administrative actions from the audit log, newest first |
 | GET | `/v1/events?agent=&session=&min_verdict=&kind=&since_seq=&limit=` | audit query (default 100, max 1000) |
 | GET | `/v1/events/stream?agent=&min_verdict=` | live events (server-sent events) |
-| GET | `/v1/graph?window_secs=&buckets=` | agents, destinations, tools and decisions over a window, for the dashboard map (default 3600 s and 30 buckets) |
+| GET | `/v1/graph?window_secs=&buckets=&until_ms=` | agents, destinations, tools and decisions over a window ending at `until_ms` (default now), for the dashboard map (default 3600 s and 30 buckets) |
 | GET | `/v1/sessions` | active sessions |
 | GET | `/v1/approvals` | pending approvals |
 | POST | `/v1/approvals/{id}/approve`, `/deny` | resolve, optional body `{"by": "name"}` |

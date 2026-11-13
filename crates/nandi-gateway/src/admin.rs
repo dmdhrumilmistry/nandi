@@ -576,13 +576,18 @@ async fn events(State(st): State<AdminState>, QueryParams(p): QueryParams<Events
 struct GraphParams {
     window_secs: Option<u64>,
     buckets: Option<usize>,
+    /// End of the window, Unix milliseconds (default: now), to draw a past
+    /// range.
+    until_ms: Option<u64>,
 }
 
 /// Agents, destinations, tools and a decision timeline for the dashboard map.
 async fn graph(State(st): State<AdminState>, QueryParams(p): QueryParams<GraphParams>) -> ApiResult {
     let Some(log) = st.app.audit.clone() else { return Err(ApiError::not_found("audit log disabled")) };
     let (window, buckets) = (p.window_secs.unwrap_or(3600), p.buckets.unwrap_or(30));
-    let g = tokio::task::spawn_blocking(move || crate::graph::build(&log, nandi_core::util::now_ms(), window, buckets))
+    let now = nandi_core::util::now_ms();
+    let until = p.until_ms.map_or(now, |u| u.min(now));
+    let g = tokio::task::spawn_blocking(move || crate::graph::build(&log, until, window, buckets))
         .await
         .map_err(ApiError::internal)?
         .map_err(ApiError::internal)?;
