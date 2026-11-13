@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<policyDefinitionResources xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+                           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                           revision="1.0" schemaVersion="1.0"
+                           xmlns="http://schemas.microsoft.com/GroupPolicy/2006/07/PolicyDefinitions">
+  <displayName>nandi</displayName>
+  <description>Managed settings for the nandi AI agent gateway.</description>
+  <resources>
+    <stringTable>
+      <string id="Nandi">nandi</string>
+      <string id="ManagedSettings">Managed settings</string>
+      <string id="ManagedSettings_Help">Settings for nandi that users cannot change, written as YAML in the same format as nandi.yaml, one line per row. They are merged over every user's own nandi.yaml: maps merge key by key, lists and values replace.
+
+Example:
+mode: enforce
+policy:
+  rules: ['C:\ProgramData\nandi\policies\coding-agent.yaml']
+report:
+  url: https://nandi.corp.example
+  token: REPORT-TOKEN
+
+Run "nandi managed" on a machine to see the settings in effect and whether they are valid.</string>
+    </stringTable>
+    <presentationTable>
+      <presentation id="ManagedSettings">
+        <multiTextBox refId="Config">YAML settings</multiTextBox>
+      </presentation>
+    </presentationTable>
+  </resources>
+</policyDefinitionResources>

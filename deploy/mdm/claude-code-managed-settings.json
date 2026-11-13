@@ -1,0 +1,13 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      { "matcher": "*", "hooks": [{ "type": "command", "command": "nandi hook claude-code -c \"$HOME/.config/nandi/nandi.yaml\"" }] }
+    ],
+    "PostToolUse": [
+      { "matcher": "*", "hooks": [{ "type": "command", "command": "nandi hook claude-code -c \"$HOME/.config/nandi/nandi.yaml\"" }] }
+    ],
+    "UserPromptSubmit": [
+      { "hooks": [{ "type": "command", "command": "nandi hook claude-code -c \"$HOME/.config/nandi/nandi.yaml\"" }] }
+    ]
+  }
+}

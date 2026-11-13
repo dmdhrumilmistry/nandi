@@ -251,3 +251,68 @@ jobs:
           sudo setcap cap_bpf,cap_perfmon,cap_dac_read_search,cap_sys_ptrace+ep "$BIN"
           getcap "$BIN"
           check capabilities env
+
+  # Managed settings from the real system sources on each platform, and the
+  # deployment kits in deploy/mdm.
+  managed:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: managed
+      - run: cargo build --locked -p nandi
+      - name: Linux, /etc/nandi
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          BIN=target/debug/nandi
+          sudo mkdir -p /etc/nandi/managed.d
+          printf 'mode: enforce\n' | sudo tee /etc/nandi/managed.yaml >/dev/null
+          printf 'approvals: { timeout_secs: 45 }\n' | sudo tee /etc/nandi/managed.d/10-approvals.yaml >/dev/null
+          "$BIN" managed
+          "$BIN" managed --json | jq -e '.settings.mode == "enforce" and .settings.approvals.timeout_secs == 45 and (.sources | length) == 2'
+          # The example kit is valid (policy paths are only checked by `run`).
+          "$BIN" managed --file deploy/mdm/linux/managed.yaml
+          systemd-analyze verify --user deploy/mdm/linux/nandi.service deploy/mdm/linux/nandi-discover.service deploy/mdm/linux/nandi-discover.timer 2>&1 | grep -v "Cannot access\|not executable" || true
+      - name: macOS, configuration profile
+        if: runner.os == 'macOS'
+        run: |
+          set -euo pipefail
+          BIN=target/debug/nandi
+          for f in deploy/mdm/macos/*.plist deploy/mdm/macos/nandi.mobileconfig; do plutil -lint "$f"; done
+          bash -n deploy/mdm/macos/install-nandi.sh
+          bash -n deploy/mdm/macos/jamf-extension-attribute.sh
+          # What macOS writes when the profile is installed: a binary plist.
+          sudo mkdir -p "/Library/Managed Preferences"
+          sudo plutil -convert binary1 -o "/Library/Managed Preferences/io.github.dmdhrumilmistry.nandi.plist" \
+            deploy/mdm/macos/io.github.dmdhrumilmistry.nandi.plist
+          "$BIN" managed
+          "$BIN" managed --json | jq -e '.settings.mode == "enforce" and .settings.approvals.timeout_secs == 300
+            and .settings.servers.osv.enabled == true and (.sources | length) == 2 and .error == null'
+      - name: Windows, registry policy
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          foreach ($f in Get-ChildItem deploy/mdm/windows -Filter *.ps1) {
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($f.FullName, [ref]$null, [ref]$errors) | Out-Null
+            if ($errors) { $errors; throw "$($f.Name) does not parse" }
+          }
+          [xml](Get-Content deploy/mdm/windows/nandi.admx -Raw) | Out-Null
+          [xml](Get-Content deploy/mdm/windows/en-US/nandi.adml -Raw) | Out-Null
+          # What the ADMX policy writes: REG_MULTI_SZ, one YAML line per string.
+          New-Item -Path "HKLM:\SOFTWARE\Policies\nandi" -Force | Out-Null
+          New-ItemProperty -Path "HKLM:\SOFTWARE\Policies\nandi" -Name Config -PropertyType MultiString -Force `
+            -Value @("mode: enforce", "approvals:", "  timeout_secs: 45") | Out-Null
+          .\target\debug\nandi.exe managed
+          $out = .\target\debug\nandi.exe managed --json | ConvertFrom-Json
+          if ($out.settings.mode -ne "enforce" -or $out.settings.approvals.timeout_secs -ne 45 -or $out.sources.Count -ne 1) {
+            $out | ConvertTo-Json -Depth 5; throw "registry policy not applied"
+          }

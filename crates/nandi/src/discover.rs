@@ -46,7 +46,7 @@ fn options(args: &Args, config: &Path) -> ScanOptions {
     } else {
         args.proxy_urls.clone()
     };
-    let cfg = config.is_file().then(|| Config::load(config).ok()).flatten();
+    let cfg = Config::load(config).ok();
     if let Some(url) = cfg.as_ref().and_then(|c| proxy_url_from_listen(&c.listen.proxy))
         && !proxy_urls.contains(&url)
     {
@@ -79,7 +79,7 @@ pub async fn run(args: Args, config: &Path) -> anyhow::Result<i32> {
     }
     if args.report {
         let opts = AdminOpts { admin: args.admin.clone(), token: args.token.clone(), json: false };
-        let (url, token) = remote::resolve_target(&opts, config);
+        let (url, token) = remote::resolve_report_target(&opts, config);
         let body = serde_json::to_value(&inv)?;
         match Remote::new(url.clone(), token).post("/v1/inventory", Some(body)).await {
             Ok(_) => eprintln!("reported {} items for {} to {url}", inv.items.len(), inv.host),

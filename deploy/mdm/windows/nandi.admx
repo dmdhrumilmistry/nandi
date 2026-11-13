@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Group Policy / Intune administrative template for nandi.
+  Copy nandi.admx to C:\Windows\PolicyDefinitions (or the central store)
+  and en-US\nandi.adml to its en-US folder; in Intune, import both under
+  Devices > Configuration > Import ADMX.
+
+  The policy writes HKLM\SOFTWARE\Policies\nandi\Config (REG_MULTI_SZ, one
+  YAML line per string), which nandi merges over every user's nandi.yaml.
+-->
+<policyDefinitions xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   revision="1.0" schemaVersion="1.0"
+                   xmlns="http://schemas.microsoft.com/GroupPolicy/2006/07/PolicyDefinitions">
+  <policyNamespaces>
+    <target prefix="nandi" namespace="Nandi.Policies.Nandi" />
+    <using prefix="windows" namespace="Microsoft.Policies.Windows" />
+  </policyNamespaces>
+  <resources minRequiredRevision="1.0" />
+  <categories>
+    <category name="Nandi" displayName="$(string.Nandi)" />
+  </categories>
+  <policies>
+    <policy name="ManagedSettings" class="Machine"
+            displayName="$(string.ManagedSettings)"
+            explainText="$(string.ManagedSettings_Help)"
+            presentation="$(presentation.ManagedSettings)"
+            key="SOFTWARE\Policies\nandi">
+      <parentCategory ref="Nandi" />
+      <supportedOn ref="windows:SUPPORTED_Windows10" />
+      <elements>
+        <multiText id="Config" valueName="Config" maxLength="65536" />
+      </elements>
+    </policy>
+  </policies>
+</policyDefinitions>

@@ -1,0 +1,15 @@
+# systemd user unit: nandi for every user who logs in.
+#   sudo install -m 0644 nandi.service /etc/systemd/user/
+#   sudo systemctl --global enable nandi.service
+[Unit]
+Description=nandi AI agent gateway
+After=network-online.target
+
+[Service]
+ExecStartPre=/usr/bin/mkdir -p %h/.config/nandi
+ExecStart=/usr/local/bin/nandi run -c %h/.config/nandi/nandi.yaml
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

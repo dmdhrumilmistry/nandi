@@ -1,0 +1,25 @@
+# Managed settings for nandi on Linux: install as /etc/nandi/managed.yaml
+# (root-owned, mode 0644), or drop pieces into /etc/nandi/managed.d/*.yaml.
+# They are merged over every user's nandi.yaml and cannot be changed by
+# users. Check a file before deploying it with `nandi managed --file FILE`.
+mode: enforce
+
+policy:
+  default: allow
+  rules:
+    - /etc/nandi/policies/coding-agent.yaml
+    - /etc/nandi/policies/payments.yaml
+
+servers:
+  on_unpinned: alert
+  osv:
+    enabled: true
+
+approvals:
+  timeout_secs: 300
+  on_timeout: deny
+
+# Where `nandi discover --report` sends this machine's AI footprint.
+report:
+  url: https://nandi.corp.example
+  token: REPLACE-WITH-THE-SERVER-REPORT-TOKEN

@@ -1,0 +1,13 @@
+# sudo install -m 0644 nandi-discover.service nandi-discover.timer /etc/systemd/user/
+# sudo systemctl --global enable nandi-discover.timer
+[Unit]
+Description=Report the AI footprint to nandi every 6 hours
+
+[Timer]
+OnStartupSec=2min
+OnUnitActiveSec=6h
+RandomizedDelaySec=15min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
