@@ -14,6 +14,7 @@ pub mod client;
 pub mod graph;
 pub mod hook;
 pub mod metrics;
+pub mod osv;
 pub mod otlp;
 pub mod proxy;
 pub mod recorder;

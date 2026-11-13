@@ -86,10 +86,44 @@ pub enum PumpEnd {
     ClientClosed,
 }
 
+/// Why a server with a malicious-package report must not be started, in
+/// enforce mode with `servers.osv.on_malicious: deny`.
+fn refuse_malicious(app: &App, server: &str, check: &nandi_core::AdvisoryCheck) -> Option<String> {
+    if app.cfg.mode != nandi_core::config::Mode::Enforce
+        || app.cfg.servers.osv.on_malicious != nandi_core::Verdict::Deny
+    {
+        return None;
+    }
+    let ids: Vec<&str> = check.advisories.iter().filter(|a| a.malicious).map(|a| a.id.as_str()).take(5).collect();
+    (!ids.is_empty()).then(|| {
+        format!(
+            "not starting MCP server {server}: {} is reported as malicious ({}); see https://osv.dev/vulnerability/{}",
+            check.package,
+            ids.join(", "),
+            ids[0]
+        )
+    })
+}
+
 /// Run the wrapped server until either side closes. Returns the child's
-/// exit code.
+/// exit code, or 1 when the server was refused before it started.
 pub async fn run(app: Arc<App>, opts: WrapOptions) -> anyhow::Result<i32> {
     let (program, args) = opts.command.split_first().ok_or_else(|| anyhow::anyhow!("no command to wrap"))?;
+    let ctx = WrapContext::from_options(&opts);
+    // Register the launch command before starting it, so it is checked
+    // against `servers.approved` and, for a local program, its hash is
+    // pinned; then look its package up in OSV when that is enabled.
+    let spec = ServerSpec::Stdio { command: program.clone(), args: args.to_vec() };
+    let package = spec.package();
+    app.engine.register_server(&ctx.server, spec);
+    if let Some(pkg) = &package
+        && let Some(check) = crate::osv::check(&app, &ctx.server, pkg).await
+        && let Some(refusal) = refuse_malicious(&app, &ctx.server, &check)
+    {
+        tracing::error!(server = %ctx.server, package = %pkg, "{refusal}");
+        eprintln!("nandi: {refusal}");
+        return Ok(1);
+    }
     let mut child = tokio::process::Command::new(program)
         .args(args)
         .stdin(std::process::Stdio::piped())
@@ -100,10 +134,6 @@ pub async fn run(app: Arc<App>, opts: WrapOptions) -> anyhow::Result<i32> {
         .map_err(|e| anyhow::anyhow!("starting {program}: {e}"))?;
     let server_in = child.stdin.take().ok_or_else(|| anyhow::anyhow!("child stdin unavailable"))?;
     let server_out = child.stdout.take().ok_or_else(|| anyhow::anyhow!("child stdout unavailable"))?;
-    let ctx = WrapContext::from_options(&opts);
-    // Register the launch command so it is checked against
-    // `servers.approved` and, for a local program, its hash is pinned.
-    app.engine.register_server(&ctx.server, ServerSpec::Stdio { command: program.clone(), args: args.to_vec() });
     tracing::info!(server = %ctx.server, agent = %ctx.agent, session = %ctx.session, "wrapping stdio MCP server");
 
     let pumping = pump(app, ctx, ThreadStdin::spawn(), tokio::io::stdout(), server_in, server_out);

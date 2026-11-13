@@ -150,6 +150,42 @@ hidden from `tools/list` and every call to it is denied.
 The defaults alert and never block, and `on_unknown` does nothing until you
 list approved servers, so turning nandi on does not break existing setups.
 
+### Known malicious and vulnerable packages
+
+With `servers.osv.enabled`, `nandi wrap` looks a server's npm or PyPI
+package up in the [OSV](https://osv.dev) database before it starts the
+server:
+
+```yaml
+servers:
+  osv:
+    enabled: true
+    on_malicious: deny      # MAL-* report: in enforce mode the server is not started
+    on_vulnerable: alert    # known vulnerabilities in the pinned version
+```
+
+```text
+$ nandi wrap --server notes -- npx -y flatmap-stream@0.1.1
+nandi: not starting MCP server notes: npm:flatmap-stream@0.1.1 is reported as malicious (MAL-2025-20690); see https://osv.dev/vulnerability/MAL-2025-20690
+```
+
+| Finding | When |
+|---|---|
+| `server.malicious-package` | OSV has a malicious-package report (`MAL-*`) for the package |
+| `server.vulnerable-package` | the pinned version has known vulnerabilities |
+
+A pinned version is checked for every advisory. An unpinned package can
+resolve to any version, so only malicious-package reports, which cover the
+whole package, count for it. Results are cached for a day
+(`cache_hours`). The lookup sends the package name and version to
+`api.osv.dev` (or the mirror in `servers.osv.url`), which is why it is off
+by default. If OSV cannot be reached within `timeout_ms` (3 seconds) the
+server starts as usual and a warning is logged. Container images and local
+files are not looked up; pin them by digest and `sha256` instead.
+
+In monitor mode, or with a verdict other than `deny`, the server starts
+and the findings are recorded on its tool lists and calls like the others.
+
 ## Seeing it
 
 `nandi servers` lists every server with its risk level and score,

@@ -56,7 +56,8 @@ deterministic decision:
 - **Capabilities and server risk.** Every tool is classified by what it can
   do (run commands, move money, send email, delete data), so a rule can say
   `capability: payment` instead of guessing at names. Servers are ranked by
-  risk, and unpinned, unapproved or swapped server packages are flagged.
+  risk; unpinned, unapproved or swapped server packages are flagged, and
+  packages reported as malicious in OSV are refused before they start.
 - **Detection.** Secrets, PII, honeytokens, prompt injection, exfiltration
   links and SSRF targets, including through base64, hex and URL encoding.
 - **Controls.** Human approvals, a kill switch, token and call budgets,
