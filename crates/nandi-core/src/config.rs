@@ -167,6 +167,10 @@ pub struct AdminConfig {
     /// Bearer token for the admin API (`env:` / `file:` allowed). When unset
     /// the admin API only accepts loopback connections.
     pub token: Option<String>,
+    /// Named users of the admin API and dashboard, each with roles and a
+    /// token (`env:` / `file:` allowed). Users can also be created from the
+    /// dashboard; these ones are read-only there.
+    pub users: Vec<UserConfig>,
     /// A second bearer token that may only report inventories
     /// (`POST /v1/inventory`, from `nandi discover --report`). Give this one
     /// to the fleet instead of the admin token.
@@ -176,8 +180,62 @@ pub struct AdminConfig {
 
 impl Default for AdminConfig {
     fn default() -> Self {
-        Self { listen: "127.0.0.1:8788".into(), token: None, report_token: None, ui: true }
+        Self { listen: "127.0.0.1:8788".into(), token: None, users: Vec::new(), report_token: None, ui: true }
     }
+}
+
+/// A role of an admin API user. Roles add up.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Role {
+    /// Read everything except users.
+    Viewer,
+    /// Viewer, plus approvals, the kill switch, pins and token revocation.
+    Operator,
+    /// Viewer, plus proposing policy changes.
+    PolicyEditor,
+    /// Policy editor, plus approving, applying and rolling back changes.
+    PolicyApprover,
+    /// Everything, including users.
+    Admin,
+    /// Only submit coding-agent hook events (`nandi hook`).
+    Hook,
+    /// Only report inventories (`nandi discover --report`).
+    Reporter,
+}
+
+impl Role {
+    pub const ALL: [Role; 7] = [
+        Role::Viewer,
+        Role::Operator,
+        Role::PolicyEditor,
+        Role::PolicyApprover,
+        Role::Admin,
+        Role::Hook,
+        Role::Reporter,
+    ];
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Role::Viewer => "viewer",
+            Role::Operator => "operator",
+            Role::PolicyEditor => "policy_editor",
+            Role::PolicyApprover => "policy_approver",
+            Role::Admin => "admin",
+            Role::Hook => "hook",
+            Role::Reporter => "reporter",
+        }
+    }
+}
+
+/// One entry of `admin.users`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct UserConfig {
+    pub name: String,
+    pub roles: Vec<Role>,
+    /// Bearer token (`env:` / `file:` allowed).
+    pub token: String,
 }
 
 /// Where `nandi discover --report` sends inventories, when `--admin` is not

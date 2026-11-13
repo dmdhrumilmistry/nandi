@@ -48,6 +48,34 @@ pub enum PinsCmd {
     Forget { id: String },
 }
 
+#[derive(Debug, Subcommand)]
+pub enum UsersCmd {
+    /// List users and their roles.
+    List,
+    /// Create a user and print their token (shown once).
+    Add {
+        name: String,
+        /// Role, repeatable: viewer, operator, policy_editor, policy_approver,
+        /// admin, hook, reporter.
+        #[arg(long = "role", required = true, value_name = "ROLE")]
+        roles: Vec<String>,
+    },
+    /// Replace a user's roles.
+    Set {
+        name: String,
+        #[arg(long = "role", required = true, value_name = "ROLE")]
+        roles: Vec<String>,
+    },
+    /// Stop a user's token from working, keeping the user.
+    Disable { name: String },
+    /// Let a disabled user in again.
+    Enable { name: String },
+    /// Replace a user's token and print the new one (shown once).
+    Rotate { name: String },
+    /// Delete a user.
+    Remove { name: String },
+}
+
 /// Default admin URL for a listen address from the config.
 pub fn admin_url_from_listen(listen: &str) -> String {
     let listen = listen.trim();
@@ -361,6 +389,54 @@ pub async fn revive(r: &Remote, agent: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+pub async fn users(r: &Remote, cmd: Option<UsersCmd>, json_out: bool) -> anyhow::Result<()> {
+    let path = |n: &str| format!("/v1/users/{}", urlencode(n));
+    let v = match cmd.unwrap_or(UsersCmd::List) {
+        UsersCmd::List => {
+            let v = r.get("/v1/users").await?;
+            if !json_out {
+                let list = v.as_array().cloned().unwrap_or_default();
+                if list.is_empty() {
+                    println!("no users; the admin token (or local access) is the only way in");
+                }
+                for u in list {
+                    let roles: Vec<&str> =
+                        u["roles"].as_array().into_iter().flatten().filter_map(Value::as_str).collect();
+                    let state = if u["disabled"] == json!(true) { "DISABLED" } else { "active" };
+                    println!("{:<24} {:<9} {:<10} {}", s(&u, "name"), state, s(&u, "origin"), roles.join(","));
+                }
+                return Ok(());
+            }
+            v
+        }
+        UsersCmd::Add { name, roles } => r.post("/v1/users", Some(json!({ "name": name, "roles": roles }))).await?,
+        UsersCmd::Set { name, roles } => r.call("PATCH", &path(&name), Some(&json!({ "roles": roles }))).await?,
+        UsersCmd::Disable { name } => r.call("PATCH", &path(&name), Some(&json!({ "disabled": true }))).await?,
+        UsersCmd::Enable { name } => r.call("PATCH", &path(&name), Some(&json!({ "disabled": false }))).await?,
+        UsersCmd::Rotate { name } => r.post(&format!("{}/rotate", path(&name)), None).await?,
+        UsersCmd::Remove { name } => r.call("DELETE", &path(&name), None).await?,
+    };
+    if json_out {
+        print_json(&v);
+    } else if let Some(token) = v.get("token").and_then(Value::as_str) {
+        let who = v.get("user").map(|u| s(u, "name")).unwrap_or_else(|| s(&v, "name"));
+        println!("token for {who} (shown once, store it now):\n{token}");
+    } else {
+        println!("done");
+    }
+    Ok(())
+}
+
+/// Percent-encode a path segment.
+fn urlencode(s: &str) -> String {
+    s.bytes()
+        .map(|b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => (b as char).to_string(),
+            _ => format!("%{b:02X}"),
+        })
+        .collect()
+}
+
 pub async fn pins(r: &Remote, cmd: Option<PinsCmd>, cards: bool, json_out: bool) -> anyhow::Result<()> {
     let base = if cards { "/v1/pins/cards" } else { "/v1/pins/tools" };
     match cmd.unwrap_or(PinsCmd::List) {
@@ -568,6 +644,13 @@ mod tests {
     }
 
     #[test]
+    fn utc_dates() {
+        assert_eq!(clock_utc(0), "1970-01-01 00:00:00Z");
+        assert_eq!(clock_utc(1_794_586_531_613), "2026-11-13 16:15:31Z");
+        assert_eq!(clock_utc(951_782_400_000), "2000-02-29 00:00:00Z");
+    }
+
+    #[test]
     fn targets() {
         let ev = json!({ "kind": { "type": "tool_call", "server": "fs", "tool": "read" } });
         assert_eq!(target(&ev), "fs/read");
@@ -575,6 +658,22 @@ mod tests {
 }
 
 /// `HH:MM:SS.mmm` in UTC for a Unix-millisecond timestamp.
+/// `YYYY-MM-DD HH:MM:SSZ` for a Unix-millisecond timestamp.
+pub fn clock_utc(ms: u64) -> String {
+    let secs = ms / 1000;
+    // Civil date from days since 1970-01-01 (Howard Hinnant's algorithm).
+    let z = (secs / 86_400) as i64 + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = yoe + era * 400 + i64::from(m <= 2);
+    format!("{y:04}-{m:02}-{d:02} {:02}:{:02}:{:02}Z", (secs / 3600) % 24, (secs / 60) % 60, secs % 60)
+}
+
 fn clock(ms: u64) -> String {
     let secs = ms / 1000;
     format!("{:02}:{:02}:{:02}.{:03}", (secs / 3600) % 24, (secs / 60) % 60, secs % 60, ms % 1000)

@@ -50,6 +50,7 @@ NAV = [
         ("operations/enforce.md", "Monitor to enforce"),
         ("operations/approvals.md", "Approvals and kill switch"),
         ("operations/identity.md", "Identity"),
+        ("operations/users.md", "Users and audit trail"),
         ("operations/audit.md", "Audit log"),
         ("operations/observability.md", "Observability"),
         ("operations/deployment.md", "Deployment"),

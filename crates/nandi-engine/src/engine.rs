@@ -251,6 +251,8 @@ impl Engine {
             EventKind::Process(p) => return self.on_process(ev, p, d),
             EventKind::File(f) => return self.on_file(ev, f, d),
             EventKind::Network(n) => return self.on_network(n, d),
+            // Records of what people did, not agent actions.
+            EventKind::Admin(_) => return d,
             _ => {}
         }
 
@@ -266,7 +268,7 @@ impl Engine {
             EventKind::A2aMessage(msg) => self.on_a2a(ev, groups, msg, &mut s, &mut d),
             EventKind::AgentCard(card) => self.on_card(card, &mut d),
             EventKind::PlanDeclared(plan) => self.on_plan(plan, &mut s, &mut d),
-            EventKind::Process(_) | EventKind::File(_) | EventKind::Network(_) => unreachable!(),
+            EventKind::Process(_) | EventKind::File(_) | EventKind::Network(_) | EventKind::Admin(_) => unreachable!(),
         }
         d.risk = risk_of(&d);
         s.risk = (s.risk * 0.95).max(d.risk);

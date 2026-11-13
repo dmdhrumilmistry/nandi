@@ -201,6 +201,32 @@ pre { margin: 6px 0 0; padding: 10px 12px; max-height: 280px; overflow: auto; ba
 /* long lists scroll inside their card instead of stretching the column */
 #approvals { max-height: 640px; overflow-y: auto; overscroll-behavior: contain; }
 #servers, #pins { max-height: 360px; overflow-y: auto; overscroll-behavior: contain; }
+/* who may do what: hide controls a role cannot use */
+body:not(.can-operate) .op { display: none !important; }
+.whoami { font-weight: 600; }
+/* audit and users views */
+.view-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+.toolbar .field { width: auto; }
+.outcome { font-size: 12px; font-weight: 600; text-transform: capitalize; }
+.outcome.ok { color: var(--allow-fg); }
+.outcome.denied, .outcome.failed { color: var(--deny-fg); }
+.c-time { width: 150px; } .c-who { width: 140px; } .c-act { width: 190px; } .c-out { width: 90px; }
+.c-roles { width: 26%; } .c-src { width: 110px; } .c-state { width: 90px; } .c-uact { width: 370px; }
+td.uact { white-space: normal; text-align: right; }
+pre.json { margin: 6px 0 0; padding: 10px; border-radius: 7px; background: var(--surface-2); font: 12px/1.5 var(--mono); white-space: pre-wrap; word-break: break-word; }
+.chain { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.roles { display: flex; flex-wrap: wrap; gap: 4px; }
+.rolepick { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+.rolepick label { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; white-space: nowrap; }
+.newuser { display: grid; gap: 10px; padding: 12px 14px; }
+.newuser .line { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.tokenbox { margin: 0 14px 14px; padding: 12px; border: 1px solid var(--ask-fg); border-radius: 8px; background: var(--ask-bg); }
+.tokenbox code { display: block; margin: 6px 0; font: 13px var(--mono); word-break: break-all; color: var(--ink); }
+td .btn + .btn { margin-left: 4px; }
+.roledoc td { white-space: normal; }
+.c-role { width: 160px; }
+
 .map-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); gap: 16px; }
 .map-grid .wide { grid-column: 1 / -1; }
 .chart { position: relative; padding: 10px 14px 14px; }
@@ -325,6 +351,8 @@ table.tv td.n, table.tv th.n { text-align: right; font-variant-numeric: tabular-
   <div class="tabs" role="tablist" aria-label="Views">
     <button type="button" role="tab" id="tab-overview" aria-controls="view-overview" aria-selected="true">Overview</button>
     <button type="button" role="tab" id="tab-map" aria-controls="view-map" aria-selected="false">Map</button>
+    <button type="button" role="tab" id="tab-audit" aria-controls="view-audit" aria-selected="false">Audit</button>
+    <button type="button" role="tab" id="tab-users" aria-controls="view-users" aria-selected="false" hidden>Users</button>
   </div>
   <span class="spacer"></span>
   <form id="filters" role="search" aria-label="Filter events">
@@ -343,10 +371,11 @@ table.tv td.n, table.tv th.n { text-align: right; font-variant-numeric: tabular-
   <details class="token">
     <summary class="btn" id="token-btn">Token</summary>
     <div class="pop">
-      <p>Admin token, kept in this browser only. Leave empty when nandi accepts loopback connections without one.</p>
+      <p id="whoami-line" class="muted"></p>
+      <p>Your nandi token (from your administrator, or the admin token), kept in this browser only. Leave empty when nandi accepts loopback connections without one.</p>
       <form id="tokform">
         <label for="token" hidden>Admin token</label>
-        <input id="token" class="field" type="password" autocomplete="off" placeholder="Bearer token">
+        <input id="token" class="field" type="password" autocomplete="off" placeholder="nandi_...">
         <button class="btn primary" type="submit">Save</button>
       </form>
     </div>
@@ -392,10 +421,10 @@ table.tv td.n, table.tv th.n { text-align: right; font-variant-numeric: tabular-
       <section class="card" aria-labelledby="h-kill">
         <header><h2 id="h-kill">Kill switch</h2></header>
         <div class="list" id="killed"></div>
-        <form class="killform" id="killform">
+        <form class="killform op" id="killform">
           <label for="kill-agent" hidden>Agent to disable</label>
           <input id="kill-agent" class="field" placeholder="Agent id" autocomplete="off">
-          <button class="btn danger" type="submit">Disable agent</button>
+          <button class="btn danger op" type="submit">Disable agent</button>
         </form>
       </section>
     </aside>
@@ -443,6 +472,56 @@ table.tv td.n, table.tv th.n { text-align: right; font-variant-numeric: tabular-
       <header><h2 id="h-time">Decisions over time</h2><p id="time-sub"></p></header>
       <div class="legend" id="time-legend"></div>
       <div class="chart" id="timeline"></div>
+    </section>
+  </div>
+</div>
+<div id="view-audit" role="tabpanel" aria-labelledby="tab-audit" hidden>
+  <div class="view-grid">
+    <section class="card" aria-labelledby="h-trail">
+      <header><h2 id="h-trail">Admin activity</h2><p>Everything people and tools changed through nandi, from the signed audit log</p>
+        <span class="spacer"></span>
+        <span class="chain" id="chain" aria-live="polite"></span>
+        <button class="btn small" type="button" id="verify-chain">Verify log</button></header>
+      <form class="toolbar" id="trail-filter" role="search" aria-label="Filter admin activity">
+        <label for="t-actor" hidden>Who</label>
+        <input id="t-actor" class="field" placeholder="Who" autocomplete="off">
+        <label for="t-action" hidden>Action</label>
+        <select id="t-action" class="field">
+          <option value="">All actions</option>
+          <option value="approval.">Approvals</option>
+          <option value="agent.">Kill switch</option>
+          <option value="pin.">Tool and card pins</option>
+          <option value="server.">Servers</option>
+          <option value="policy.">Policy</option>
+          <option value="user.">Users</option>
+          <option value="token.">Token revocation</option>
+          <option value="access.denied">Refused requests</option>
+        </select>
+        <button class="btn" type="submit">Apply</button>
+      </form>
+      <div id="trail"></div>
+    </section>
+  </div>
+</div>
+<div id="view-users" role="tabpanel" aria-labelledby="tab-users" hidden>
+  <div class="view-grid">
+    <section class="card" aria-labelledby="h-users">
+      <header><h2 id="h-users">Users</h2><span class="count" id="users-count"></span><p>People and tools that use the dashboard and admin API</p></header>
+      <div id="users"></div>
+      <form class="newuser" id="newuser" aria-labelledby="h-newuser">
+        <strong id="h-newuser">Add a user</strong>
+        <div class="line">
+          <label for="nu-name" hidden>Name</label>
+          <input id="nu-name" class="field" placeholder="Name, e.g. asha or ci-bot" autocomplete="off" required>
+          <div class="rolepick" id="nu-roles" role="group" aria-label="Roles"></div>
+          <button class="btn primary" type="submit">Create</button>
+        </div>
+      </form>
+      <div id="newtoken"></div>
+    </section>
+    <section class="card" aria-labelledby="h-roles">
+      <header><h2 id="h-roles">Roles</h2><p>Roles add up; the admin token and local access without a token have every permission</p></header>
+      <table class="roledoc"><colgroup><col class="c-role"><col></colgroup><tbody id="roledoc"></tbody></table>
     </section>
   </div>
 </div>
@@ -736,10 +815,10 @@ async function refreshApprovals() {
       el("ul", {}, ...(findings.length ? findings : p.decision.findings || []).slice(0, 3).map((f) =>
         el("li", {}, el("code", {}, f.rule), " ", f.message))),
       el("div", { class: "actions" },
-        el("button", { class: "btn small danger", type: "button", "aria-label": "Deny: " + p.summary,
-          onclick: () => act("/v1/approvals/" + encodeURIComponent(p.id) + "/deny", { by: "dashboard" }) }, "Deny"),
-        el("button", { class: "btn small primary", type: "button", "aria-label": "Approve: " + p.summary,
-          onclick: () => act("/v1/approvals/" + encodeURIComponent(p.id) + "/approve", { by: "dashboard" }) }, "Approve")));
+        el("button", { class: "btn small danger op", type: "button", "aria-label": "Deny: " + p.summary,
+          onclick: () => act("/v1/approvals/" + encodeURIComponent(p.id) + "/deny") }, "Deny"),
+        el("button", { class: "btn small primary op", type: "button", "aria-label": "Approve: " + p.summary,
+          onclick: () => act("/v1/approvals/" + encodeURIComponent(p.id) + "/approve") }, "Approve")));
   }), "Nothing is waiting. Calls held by policy appear here until someone approves or denies them.");
 }
 
@@ -749,7 +828,7 @@ async function refreshKilled() {
   $("k-killed").textContent = String(list.length);
   fill("killed", list.map((a) => el("div", { class: "item killed" },
     el("span", { class: "chip v-deny" }, icon("deny"), "Disabled"), el("span", { class: "name" }, a),
-    el("button", { class: "btn small", type: "button", "aria-label": "Re-enable " + a,
+    el("button", { class: "btn small op", type: "button", "aria-label": "Re-enable " + a,
       onclick: () => act("/v1/agents/" + encodeURIComponent(a) + "/revive") }, "Re-enable"))),
     "Every agent is enabled.");
 }
@@ -800,9 +879,9 @@ async function refreshPins() {
       p.pending
         ? el("div", { class: "state changed" }, icon("alert"), "Definition changed " + ago(p.pending_since_ms || Date.now()) + ", calls blocked")
         : el("div", { class: "state" }, "Pinned " + ago(p.first_seen_ms) + "  ·  ", el("span", { class: "mono" }, p.hash.slice(0, 10)))),
-    p.pending ? el("button", { class: "btn small", type: "button", "aria-label": "Accept new definition of " + p.id,
+    p.pending ? el("button", { class: "btn small op", type: "button", "aria-label": "Accept new definition of " + p.id,
       onclick: () => act("/v1/pins/tools/approve", { id: p.id }) }, "Accept change") : null,
-    el("button", { class: "btn small link", type: "button", "aria-label": "Forget pin " + p.id,
+    el("button", { class: "btn small link op", type: "button", "aria-label": "Forget pin " + p.id,
       onclick: () => act("/v1/pins/tools/forget", { id: p.id }) }, "Forget"))),
     "No tools pinned yet. Definitions are pinned the first time a server lists them.");
 }
@@ -831,7 +910,7 @@ async function refreshServers() {
       s.capabilities.length ? el("div", { class: "caps" }, ...s.capabilities.filter((c) => c !== "read_only").slice(0, 6)
         .map((c) => el("span", { class: "mono-chip" }, c))) : null,
       flags.length || s.binary_changed ? el("div", { class: "flags" }, ...flags,
-        s.binary_changed ? el("button", { class: "btn small", type: "button", "aria-label": "Accept new binary of " + s.name,
+        s.binary_changed ? el("button", { class: "btn small op", type: "button", "aria-label": "Accept new binary of " + s.name,
           onclick: () => act("/v1/servers/accept-binary", { name: s.name }) }, "Accept binary") : null) : null);
   }));
 }
@@ -1026,6 +1105,7 @@ $("tokform").addEventListener("submit", (e) => {
   token = $("token").value.trim();
   if (token) localStorage.setItem("nandi.token", token); else localStorage.removeItem("nandi.token");
   e.target.closest("details").open = false;
+  loadMe().then(() => showView(location.hash.slice(1) || "overview"));
   restart();
 });
 $("filters").addEventListener("submit", (e) => { e.preventDefault(); restart(); });
@@ -1427,16 +1507,173 @@ function renderMap() {
   else { mandala(g); flow(g); }
   timeline(g);
 }
+// ---------- views ----------
+const VIEWS = ["overview", "map", "audit", "users"];
+let auditTimer = null;
 function showView(name) {
-  const map = name === "map";
-  $("view-map").hidden = !map; $("view-overview").hidden = map;
-  $("tab-map").setAttribute("aria-selected", String(map)); $("tab-overview").setAttribute("aria-selected", String(!map));
-  if (history.replaceState) history.replaceState(null, "", map ? "#map" : "#");
-  clearInterval(mapTimer);
-  if (map) { loadGraph(); mapTimer = setInterval(loadGraph, 15000); }
+  if (!VIEWS.includes(name) || $("tab-" + name).hidden) name = "overview";
+  for (const v of VIEWS) {
+    $("view-" + v).hidden = v !== name;
+    $("tab-" + v).setAttribute("aria-selected", String(v === name));
+  }
+  $("filters").hidden = name !== "overview";
+  if (history.replaceState) history.replaceState(null, "", name === "overview" ? "#" : "#" + name);
+  clearInterval(mapTimer); clearInterval(auditTimer);
+  if (name === "map") { loadGraph(); mapTimer = setInterval(loadGraph, 15000); }
+  if (name === "audit") { loadTrail(); auditTimer = setInterval(loadTrail, 15000); }
+  if (name === "users") loadUsers();
 }
-$("tab-overview").addEventListener("click", () => showView("overview"));
-$("tab-map").addEventListener("click", () => showView("map"));
+for (const v of VIEWS) $("tab-" + v).addEventListener("click", () => showView(v));
+
+// ---------- who am I ----------
+let me = null;
+const ROLE_TEXT = {
+  viewer: "Read everything: activity, approvals, sessions, servers, the map, policies and this audit trail. Not users.",
+  operator: "Viewer, plus approving or denying held calls, the kill switch, accepting tool and server changes, revoking tokens.",
+  policy_editor: "Viewer, plus proposing policy changes.",
+  policy_approver: "Policy editor, plus approving, applying and rolling back policy changes.",
+  admin: "Everything, including managing users.",
+  hook: "Only send coding-agent hook events (nandi hook). For agent machines, not people.",
+  reporter: "Only report inventories (nandi discover --report). For fleets.",
+};
+const ROLE_LABEL = { viewer: "Viewer", operator: "Operator", policy_editor: "Policy editor",
+  policy_approver: "Policy approver", admin: "Admin", hook: "Hook", reporter: "Reporter" };
+async function loadMe() {
+  try { me = await api("/v1/me"); } catch (_) { me = null; }
+  const perms = new Set(me ? me.permissions : []);
+  document.body.classList.toggle("can-operate", perms.has("operate"));
+  $("tab-users").hidden = !perms.has("manage_users");
+  $("token-btn").textContent = me ? me.name : "Sign in";
+  $("token-btn").classList.toggle("whoami", !!me);
+  $("whoami-line").textContent = me
+    ? "Signed in as " + me.name + " (" + me.roles.map((r) => ROLE_LABEL[r] || r).join(", ") + ")" +
+      (me.origin === "local" ? ", by local access without a token." : me.origin === "admin_token" ? ", with the admin token." : ".")
+    : "Not signed in.";
+}
+
+// ---------- audit trail ----------
+async function loadTrail() {
+  const q = new URLSearchParams({ limit: "200" });
+  if ($("t-actor").value.trim()) q.set("actor", $("t-actor").value.trim());
+  if ($("t-action").value) q.set("action", $("t-action").value);
+  let rows;
+  try { rows = await api("/v1/audit/admin?" + q, { quiet404: true }); } catch (_) { return; }
+  if (rows === null) { $("trail").replaceChildren(el("div", { class: "empty" }, "The audit log is turned off (audit.enabled), so admin activity is not recorded.")); return; }
+  if (!rows.length) { $("trail").replaceChildren(el("div", { class: "empty" }, "No admin activity yet.")); return; }
+  const body = el("tbody", {});
+  for (const r of rows) {
+    const tr = el("tr", { class: "row", tabindex: "0", "aria-expanded": "false" },
+      el("td", { title: new Date(r.ts_ms).toLocaleString() }, ago(r.ts_ms)),
+      el("td", {}, r.actor),
+      el("td", {}, el("span", { class: "mono-chip" }, r.action)),
+      el("td", { title: r.target }, r.target || "-"),
+      el("td", {}, el("span", { class: "outcome " + r.outcome }, r.outcome === "ok" ? "Done" : r.outcome)));
+    const toggle = () => {
+      const next = tr.nextElementSibling;
+      if (next && next.classList.contains("detail")) { next.remove(); tr.setAttribute("aria-expanded", "false"); return; }
+      tr.after(el("tr", { class: "detail" }, el("td", { colspan: "5" },
+        el("div", { class: "muted" }, "Record #" + r.seq + ", " + new Date(r.ts_ms).toLocaleString()),
+        r.details !== undefined && r.details !== null ? el("pre", { class: "json" }, JSON.stringify(r.details, null, 2)) : null)));
+      tr.setAttribute("aria-expanded", "true");
+    };
+    tr.addEventListener("click", toggle);
+    tr.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); } });
+    body.append(tr);
+  }
+  if ($("trail").querySelector('[aria-expanded="true"]')) return; // keep an open row open
+  $("trail").replaceChildren(el("table", {},
+    el("colgroup", {}, el("col", { class: "c-time" }), el("col", { class: "c-who" }), el("col", { class: "c-act" }), el("col", {}), el("col", { class: "c-out" })),
+    el("thead", {}, el("tr", {}, ...["When", "Who", "Action", "Target", "Outcome"].map((h) => el("th", { scope: "col" }, h)))), body));
+}
+$("trail-filter").addEventListener("submit", (e) => { e.preventDefault(); $("trail").replaceChildren(); loadTrail(); });
+$("verify-chain").addEventListener("click", async () => {
+  $("chain").textContent = "Checking...";
+  try {
+    const r = await api("/v1/audit/verify");
+    $("chain").replaceChildren(r.ok
+      ? el("span", { class: "chip v-allow" }, icon("allow"), "Intact: " + r.records + " records, signatures valid")
+      : el("span", { class: "chip v-deny", title: (r.problems || []).join("\n") }, icon("deny"), (r.problems || []).length + " problems"));
+  } catch (_) { $("chain").textContent = ""; }
+});
+
+// ---------- users ----------
+const ASSIGNABLE = ["viewer", "operator", "policy_editor", "policy_approver", "admin", "hook", "reporter"];
+function rolePicker(id, selected) {
+  return ASSIGNABLE.map((r) => el("label", { title: ROLE_TEXT[r] },
+    el("input", Object.assign({ type: "checkbox", name: id, value: r }, selected.includes(r) ? { checked: "" } : {})), ROLE_LABEL[r]));
+}
+function pickedRoles(container) {
+  return Array.from(container.querySelectorAll("input[type=checkbox]:checked")).map((i) => i.value);
+}
+function showToken(name, token) {
+  const copy = el("button", { class: "btn small", type: "button" }, "Copy");
+  copy.addEventListener("click", () => navigator.clipboard.writeText(token).then(() => { copy.textContent = "Copied"; }));
+  $("newtoken").replaceChildren(el("div", { class: "tokenbox", role: "status" },
+    el("strong", {}, "Token for " + name + ". Copy it now: it is not stored and will not be shown again."),
+    el("code", {}, token), copy,
+    el("button", { class: "btn small link", type: "button", onclick: () => $("newtoken").replaceChildren() }, "Done")));
+}
+async function userCall(method, path, body) {
+  try { return await api(path, { method, body }); } catch (_) { return null; }
+}
+async function loadUsers() {
+  let list;
+  try { list = await api("/v1/users"); } catch (_) { return; }
+  $("users-count").textContent = String(list.length);
+  if (!list.length) {
+    $("users").replaceChildren(el("div", { class: "empty" },
+      "No users yet. Until you add some, people sign in with the admin token (or local access). Add users so each person has their own token and shows up by name in the audit trail."));
+  } else {
+    const body = el("tbody", {});
+    for (const u of list) {
+      const fromConfig = u.origin === "config";
+      const actions = el("td", { class: "uact" });
+      if (fromConfig) actions.append(el("span", { class: "muted" }, "Set in the configuration"));
+      else {
+        const edit = el("button", { class: "btn small", type: "button" }, "Edit roles");
+        edit.addEventListener("click", () => {
+          const pick = el("div", { class: "rolepick" }, ...rolePicker("r-" + u.name, u.roles));
+          const save = el("button", { class: "btn small primary", type: "button" }, "Save");
+          save.addEventListener("click", async () => { if (await userCall("PATCH", "/v1/users/" + encodeURIComponent(u.name), { roles: pickedRoles(pick) })) loadUsers(); });
+          actions.replaceChildren(pick, save);
+        });
+        const able = el("button", { class: "btn small", type: "button" }, u.disabled ? "Enable" : "Disable");
+        able.addEventListener("click", async () => { if (await userCall("PATCH", "/v1/users/" + encodeURIComponent(u.name), { disabled: !u.disabled })) loadUsers(); });
+        const rotate = el("button", { class: "btn small", type: "button" }, "New token");
+        rotate.addEventListener("click", async () => {
+          if (!confirm("Replace the token of " + u.name + "? The old one stops working at once.")) return;
+          const r = await userCall("POST", "/v1/users/" + encodeURIComponent(u.name) + "/rotate");
+          if (r) showToken(u.name, r.token);
+        });
+        const del = el("button", { class: "btn small danger", type: "button" }, "Delete");
+        del.addEventListener("click", async () => {
+          if (!confirm("Delete " + u.name + "? Their token stops working at once.")) return;
+          if (await userCall("DELETE", "/v1/users/" + encodeURIComponent(u.name))) loadUsers();
+        });
+        actions.append(edit, able, rotate, del);
+      }
+      body.append(el("tr", {},
+        el("td", {}, u.name),
+        el("td", {}, el("div", { class: "roles" }, ...u.roles.map((r) => el("span", { class: "mono-chip", title: ROLE_TEXT[r] }, ROLE_LABEL[r] || r)))),
+        el("td", {}, fromConfig ? "Configuration" : "Dashboard"),
+        el("td", {}, u.disabled ? el("span", { class: "outcome failed" }, "Disabled") : el("span", { class: "outcome ok" }, "Active")),
+        el("td", { title: u.created_ms ? new Date(u.created_ms).toLocaleString() : "" }, u.created_by ? (u.created_ms ? ago(u.created_ms) + " by " + u.created_by : u.created_by) : "-"),
+        actions));
+    }
+    $("users").replaceChildren(el("table", {},
+      el("colgroup", {}, el("col", {}), el("col", { class: "c-roles" }), el("col", { class: "c-src" }), el("col", { class: "c-state" }), el("col", {}), el("col", { class: "c-uact" })),
+      el("thead", {}, el("tr", {}, ...["Name", "Roles", "Source", "Status", "Created", ""].map((h) => el("th", { scope: "col" }, h)))), body));
+  }
+}
+$("nu-roles").replaceChildren(...rolePicker("nu", ["viewer"]));
+$("roledoc").replaceChildren(...ASSIGNABLE.map((r) => el("tr", {}, el("td", {}, ROLE_LABEL[r]), el("td", {}, ROLE_TEXT[r]))));
+$("newuser").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const name = $("nu-name").value.trim();
+  const roles = pickedRoles($("nu-roles"));
+  const r = await userCall("POST", "/v1/users", { name, roles });
+  if (r) { $("nu-name").value = ""; showToken(r.user.name, r.token); loadUsers(); }
+});
 $("range").addEventListener("click", (e) => {
   const b = e.target.closest("button"); if (!b) return;
   for (const x of $("range").querySelectorAll("button")) x.setAttribute("aria-pressed", String(x === b));
@@ -1446,7 +1683,7 @@ $("as-table").addEventListener("click", (e) => {
   tableMode = !tableMode; e.target.setAttribute("aria-pressed", String(tableMode));
   e.target.textContent = tableMode ? "Show as charts" : "Show as table"; renderMap();
 });
-if (location.hash === "#map") showView("map");
+loadMe().then(() => { if (location.hash.length > 1) showView(location.hash.slice(1)); });
 
 setInterval(refreshFast, 2000);
 setInterval(refreshSlow, 5000);

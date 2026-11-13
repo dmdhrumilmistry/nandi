@@ -64,7 +64,8 @@ deterministic decision:
 - **Controls.** Human approvals, a kill switch, token and call budgets,
   behaviour baselines per agent.
 - **Evidence.** A hash-chained, Ed25519-signed audit log, OpenTelemetry spans
-  and Prometheus metrics.
+  and Prometheus metrics. Named users with roles, and every approval, kill
+  switch use, policy and user change in the same signed log, under their name.
 
 It runs in monitor mode first, so you can see what enforcement would do on
 real traffic before turning it on.
@@ -155,6 +156,7 @@ ours, so treat it as a regression suite rather than a benchmark; see
   [testing](docs/policy/testing.md)
 - Operations: [monitor to enforce](docs/operations/enforce.md),
   [approvals](docs/operations/approvals.md), [identity](docs/operations/identity.md),
+  [users and audit trail](docs/operations/users.md),
   [audit](docs/operations/audit.md), [observability](docs/operations/observability.md),
   [deployment](docs/operations/deployment.md), [fleets with Jamf, Intune and Linux](docs/operations/mdm.md)
 - Reference: [configuration](docs/reference/configuration.md), [CLI](docs/reference/cli.md),

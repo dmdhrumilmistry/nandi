@@ -244,6 +244,25 @@ Options:
   -h, --help                   Print help
 ```
 
+### nandi audit trail
+
+```text
+Administrative actions (approvals, kill switch, pins, policy and user changes), newest first
+
+Usage: nandi audit trail [OPTIONS]
+
+Options:
+      --actor <ACTOR>          Only actions by this user (`admin` is the admin token)
+  -c, --config <CONFIG>        Configuration file [env: NANDI_CONFIG=] [default: nandi.yaml]
+      --action <ACTION>        Only actions starting with this, e.g. `user.` or `approval.approve`
+      --log-level <LOG_LEVEL>  Log filter (error, warn, info, debug, trace or a tracing directive) [env: NANDI_LOG=] [default: info]
+      --limit <LIMIT>          [default: 50]
+      --json                   Print JSON lines
+      --db <DB>                
+      --key <KEY>              
+  -h, --help                   Print help
+```
+
 ### nandi audit head
 
 ```text
@@ -502,6 +521,34 @@ Options:
       --json                   Print raw JSON instead of a summary
   -h, --help                   Print help
 ```
+
+### nandi users
+
+```text
+Users of the dashboard and admin API, with roles (admin API)
+
+Usage: nandi users [OPTIONS] [COMMAND]
+
+Commands:
+  list     List users and their roles
+  add      Create a user and print their token (shown once)
+  set      Replace a user's roles
+  disable  Stop a user's token from working, keeping the user
+  enable   Let a disabled user in again
+  rotate   Replace a user's token and print the new one (shown once)
+  remove   Delete a user
+  help     Print this message or the help of the given subcommand(s)
+
+Options:
+  -c, --config <CONFIG>        Configuration file [env: NANDI_CONFIG=] [default: nandi.yaml]
+      --log-level <LOG_LEVEL>  Log filter (error, warn, info, debug, trace or a tracing directive) [env: NANDI_LOG=] [default: info]
+      --admin <URL>            Admin API base URL (default: `admin.listen` from the config, else http://127.0.0.1:8788)
+      --token <TOKEN>          Admin bearer token (default: `admin.token` from the config) [env: NANDI_ADMIN_TOKEN]
+      --json                   Print raw JSON instead of a summary
+  -h, --help                   Print help
+```
+
+See [Users and audit trail](../operations/users.md).
 
 ### nandi servers
 

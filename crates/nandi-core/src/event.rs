@@ -27,6 +27,8 @@ pub enum Source {
     Replay,
     /// Evaluation harness.
     Eval,
+    /// A person or tool acting through the admin API or dashboard.
+    Admin,
 }
 
 /// One observed action of an agent.
@@ -79,6 +81,26 @@ pub enum EventKind {
     Process(ProcessEvent),
     File(FileEvent),
     Network(NetworkEvent),
+    /// An administrative action: an approval, the kill switch, a policy or
+    /// user change. Recorded in the same signed chain as agent events.
+    Admin(AdminAction),
+}
+
+/// Who did what through the admin API.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AdminAction {
+    /// The authenticated user, `admin` for the admin token, `local` for
+    /// loopback access without a token.
+    pub actor: String,
+    /// Dotted action name, e.g. `approval.approve`, `agent.kill`,
+    /// `user.create`, `policy.apply`.
+    pub action: String,
+    /// What it acted on: an approval id, agent, user, policy document.
+    pub target: String,
+    /// `ok`, `denied` (not permitted) or `failed`.
+    pub outcome: String,
+    #[serde(default, skip_serializing_if = "Value::is_null")]
+    pub details: Value,
 }
 
 impl EventKind {
@@ -95,6 +117,7 @@ impl EventKind {
             EventKind::Process(_) => "process",
             EventKind::File(_) => "file",
             EventKind::Network(_) => "network",
+            EventKind::Admin(_) => "admin",
         }
     }
 }

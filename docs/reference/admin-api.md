@@ -10,6 +10,11 @@ page); without a token they only answer loopback clients.
 | GET | `/healthz` | liveness |
 | GET | `/metrics` | Prometheus text |
 | GET | `/v1/status` | mode, routes, counts, audit head |
+| GET | `/v1/me` | who the token belongs to: name, roles, permissions |
+| GET, POST | `/v1/users` | list users; create one with `{"name", "roles"}`, which returns its token once |
+| PATCH, DELETE | `/v1/users/{name}` | change `roles` or `disabled`; delete |
+| POST | `/v1/users/{name}/rotate` | replace the token; returns the new one once |
+| GET | `/v1/audit/admin?actor=&action=&limit=` | administrative actions from the audit log, newest first |
 | GET | `/v1/events?agent=&session=&min_verdict=&kind=&since_seq=&limit=` | audit query (default 100, max 1000) |
 | GET | `/v1/events/stream?agent=&min_verdict=` | live events (server-sent events) |
 | GET | `/v1/graph?window_secs=&buckets=` | agents, destinations, tools and decisions over a window, for the dashboard map (default 3600 s and 30 buckets) |
@@ -31,6 +36,16 @@ page); without a token they only answer loopback clients.
 | GET | `/v1/inventory` | latest inventory of every reporting host, newest scan first |
 | GET | `/v1/tokens/revoked` | revoked Biscuit block ids |
 | POST | `/v1/tokens/revoke` | revoke a Biscuit block, body `{"id": "<hex>"}` |
+
+## Permissions
+
+Each route needs a permission, granted by the caller's roles (see
+[Users and audit trail](../operations/users.md)): reading needs `read`;
+approvals, the kill switch, pins, server binaries, behaviour resets and
+token revocation need `operate`; policy reloads `policy_approve`; users
+`manage_users`; `/v1/hook/*` needs `hook` and `POST /v1/inventory` needs
+`report`. `/v1/me` works for everyone signed in. A route not listed here
+needs `admin`.
 
 ## Examples
 

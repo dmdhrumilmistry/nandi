@@ -24,7 +24,7 @@ use nandi_gateway::hook::HookFormat;
 use nandi_gateway::stdio::WrapOptions;
 use nandi_gateway::{App, admin, hook, proxy, stdio};
 
-use remote::{AdminOpts, ApprovalsCmd, PinsCmd, Remote};
+use remote::{AdminOpts, ApprovalsCmd, PinsCmd, Remote, UsersCmd};
 
 #[cfg(feature = "mimalloc")]
 #[global_allocator]
@@ -149,6 +149,13 @@ enum Cmd {
         /// A2A Agent Card pins instead of tool pins.
         #[arg(long)]
         cards: bool,
+        #[command(flatten)]
+        admin: AdminOpts,
+    },
+    /// Users of the dashboard and admin API, with roles (admin API).
+    Users {
+        #[command(subcommand)]
+        cmd: Option<UsersCmd>,
         #[command(flatten)]
         admin: AdminOpts,
     },
@@ -286,6 +293,25 @@ enum AuditCmd {
         /// Output file, `-` for stdout.
         #[arg(long)]
         out: PathBuf,
+        #[arg(long)]
+        db: Option<PathBuf>,
+        #[arg(long)]
+        key: Option<PathBuf>,
+    },
+    /// Administrative actions (approvals, kill switch, pins, policy and user
+    /// changes), newest first.
+    Trail {
+        /// Only actions by this user (`admin` is the admin token).
+        #[arg(long)]
+        actor: Option<String>,
+        /// Only actions starting with this, e.g. `user.` or `approval.approve`.
+        #[arg(long)]
+        action: Option<String>,
+        #[arg(long, default_value_t = 50)]
+        limit: usize,
+        /// Print JSON lines.
+        #[arg(long)]
+        json: bool,
         #[arg(long)]
         db: Option<PathBuf>,
         #[arg(long)]
@@ -676,6 +702,9 @@ async fn dispatch(cli: Cli) -> anyhow::Result<i32> {
                 AuditCmd::Verify { db, key, .. } => offline::verify_db(&open(db, key)?)?,
                 AuditCmd::Export { out, db, key } => offline::export(&open(db, key)?, &out)?,
                 AuditCmd::Head { db, key } => offline::head(&open(db, key)?)?,
+                AuditCmd::Trail { actor, action, limit, json, db, key } => {
+                    offline::trail(&open(db, key)?, actor.as_deref(), action.as_deref(), limit, json)?
+                }
             }
             Ok(0)
         }
@@ -747,6 +776,10 @@ async fn dispatch(cli: Cli) -> anyhow::Result<i32> {
         }
         Cmd::Pins { cmd, cards, admin } => {
             remote::pins(&remote_for(&admin, config)?, cmd, cards, admin.json).await?;
+            Ok(0)
+        }
+        Cmd::Users { cmd, admin } => {
+            remote::users(&remote_for(&admin, config)?, cmd, admin.json).await?;
             Ok(0)
         }
         Cmd::Servers { admin } => {
