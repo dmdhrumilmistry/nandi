@@ -1,6 +1,7 @@
 //! The `nandi` command line: gateway, stdio wrapper, hook client, policy
 //! tooling, audit tooling and admin client.
 
+mod agents;
 mod discover;
 mod init;
 mod offline;
@@ -63,7 +64,8 @@ enum Cmd {
     },
     /// Coding-agent hook: read the payload on stdin, ask nandi, print the answer.
     Hook {
-        /// claude-code | cursor | generic
+        /// claude-code | codex | gemini-cli | copilot-cli | cursor | windsurf |
+        /// devin | generic
         format: String,
         #[arg(long, value_name = "URL")]
         admin: Option<String>,
@@ -72,6 +74,20 @@ enum Cmd {
         /// Allow the action when nandi is unreachable (default: block).
         #[arg(long)]
         fail_open: bool,
+    },
+    /// Print, or install with --write, the hook configuration that puts nandi
+    /// in front of a coding agent: claude-code, codex, gemini-cli,
+    /// copilot-cli, cursor, windsurf, devin, or all.
+    HookConfig {
+        agent: String,
+        /// The system-wide, administrator-enforced configuration (for MDM
+        /// and configuration management), where the agent has one.
+        #[arg(long)]
+        managed: bool,
+        /// Install it: create the file, or merge into an existing JSON file
+        /// (keeping a backup).
+        #[arg(long)]
+        write: bool,
     },
     /// Validate and test policies.
     Policy {
@@ -775,6 +791,10 @@ async fn dispatch(cli: Cli) -> anyhow::Result<i32> {
         }
         Cmd::Pins { cmd, cards, admin } => {
             remote::pins(&remote_for(&admin, config)?, cmd, cards, admin.json).await?;
+            Ok(0)
+        }
+        Cmd::HookConfig { agent, managed, write } => {
+            agents::run(&agent, managed, write)?;
             Ok(0)
         }
         Cmd::Users { cmd, admin } => {

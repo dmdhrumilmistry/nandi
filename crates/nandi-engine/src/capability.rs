@@ -470,6 +470,34 @@ const LOCAL_TOOLS: &[(&str, &[Capability])] = &[
     ("todowrite", &[]),
     ("todoread", &[]),
     ("exitplanmode", &[]),
+    // Codex
+    ("update_plan", &[]),
+    ("spawn_agent", &[]),
+    // Gemini CLI
+    ("run_shell_command", &[Capability::CommandExecution]),
+    // Windsurf (named by the nandi adapter)
+    ("run_command", &[Capability::CommandExecution]),
+    ("replace", &[Capability::FileWrite]),
+    ("read_many_files", &[Capability::ReadOnly]),
+    ("list_directory", &[Capability::ReadOnly]),
+    ("web_fetch", &[Capability::NetworkFetch]),
+    ("google_web_search", &[Capability::NetworkFetch]),
+    ("write_todos", &[]),
+    ("ask_user", &[]),
+    // GitHub Copilot CLI
+    ("powershell", &[Capability::CommandExecution]),
+    ("view", &[Capability::ReadOnly]),
+    ("create", &[Capability::FileWrite]),
+    ("str_replace_editor", &[Capability::FileWrite]),
+    ("update_todo", &[]),
+    // Devin and Windsurf
+    ("exec", &[Capability::CommandExecution]),
+    ("write_to_process", &[Capability::CommandExecution]),
+    ("get_output", &[Capability::ReadOnly]),
+    ("kill_shell", &[Capability::CommandExecution]),
+    ("notebook_read", &[Capability::ReadOnly]),
+    ("notebook_edit", &[Capability::FileWrite]),
+    ("todo_write", &[]),
 ];
 
 /// A classification with an optional explanation.

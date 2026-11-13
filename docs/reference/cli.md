@@ -49,7 +49,7 @@ Coding-agent hook: read the payload on stdin, ask nandi, print the answer
 Usage: nandi hook [OPTIONS] <FORMAT>
 
 Arguments:
-  <FORMAT>  claude-code | cursor | generic
+  <FORMAT>  claude-code | codex | gemini-cli | copilot-cli | cursor | windsurf | devin | generic
 
 Options:
       --admin <URL>            
@@ -59,6 +59,26 @@ Options:
       --fail-open              Allow the action when nandi is unreachable (default: block)
   -h, --help                   Print help
 ```
+
+### nandi hook-config
+
+```text
+Print, or install with --write, the hook configuration that puts nandi in front of a coding agent: claude-code, codex, gemini-cli, copilot-cli, cursor, windsurf, devin, or all
+
+Usage: nandi hook-config [OPTIONS] <AGENT>
+
+Arguments:
+  <AGENT>  
+
+Options:
+  -c, --config <CONFIG>        Configuration file [env: NANDI_CONFIG=] [default: nandi.yaml]
+      --managed                The system-wide, administrator-enforced configuration (for MDM and configuration management), where the agent has one
+      --log-level <LOG_LEVEL>  Log filter (error, warn, info, debug, trace or a tracing directive) [env: NANDI_LOG=] [default: info]
+      --write                  Install it: create the file, or merge into an existing JSON file (keeping a backup)
+  -h, --help                   Print help
+```
+
+See [Coding agents](../guides/coding-agents.md).
 
 ### nandi sense
 
