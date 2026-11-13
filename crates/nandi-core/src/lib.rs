@@ -16,5 +16,5 @@ pub use config::Config;
 pub use decision::{Category, Decision, Finding, Severity, Verdict};
 pub use error::{Error, Result};
 pub use event::*;
-pub use server::{Ecosystem, PackageRef, ServerSpec};
+pub use server::{Advisory, AdvisoryCheck, Ecosystem, PackageRef, ServerSpec};
 pub use state::{MemoryStore, StateStore};

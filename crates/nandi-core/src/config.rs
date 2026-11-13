@@ -332,6 +332,42 @@ pub struct ServersConfig {
     /// The allow-list. A server matches an entry by name; the entry's
     /// `package`, `url` or `sha256`, when given, must match too.
     pub approved: Vec<ApprovedServer>,
+    /// Look up npm and PyPI server packages in the OSV database.
+    pub osv: OsvConfig,
+}
+
+/// Malicious-package and vulnerability lookups in [OSV](https://osv.dev)
+/// when `nandi wrap` starts a server from a registry package.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct OsvConfig {
+    /// Off by default: a lookup sends the package name and version to the
+    /// OSV API.
+    pub enabled: bool,
+    /// OSV API base URL, for a mirror.
+    pub url: String,
+    /// Verdict for a package with a malicious-package advisory (`MAL-*`).
+    /// With `deny` in enforce mode the server is not started.
+    pub on_malicious: Verdict,
+    /// Verdict for a pinned package version with known vulnerabilities.
+    pub on_vulnerable: Verdict,
+    /// Give up on a lookup after this long and start the server anyway.
+    pub timeout_ms: u64,
+    /// Reuse a lookup result for this long.
+    pub cache_hours: u64,
+}
+
+impl Default for OsvConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            url: "https://api.osv.dev".into(),
+            on_malicious: Verdict::Deny,
+            on_vulnerable: Verdict::Alert,
+            timeout_ms: 3000,
+            cache_hours: 24,
+        }
+    }
 }
 
 impl Default for ServersConfig {
@@ -341,6 +377,7 @@ impl Default for ServersConfig {
             on_unpinned: Verdict::Alert,
             on_binary_change: Verdict::Alert,
             approved: Vec::new(),
+            osv: OsvConfig::default(),
         }
     }
 }
@@ -843,6 +880,12 @@ servers:
         assert_eq!(c.servers.approved[1].url.as_deref(), Some("https://api.githubcopilot.com/mcp"));
         assert!(Config::from_yaml("servers: { approved: [ { name: x, pkg: y } ] }").is_err());
         assert!(Config::from_yaml("servers: { on_unknwn: deny }").is_err());
+        assert!(!c.servers.osv.enabled);
+        let c = Config::from_yaml("servers: { osv: { enabled: true, on_vulnerable: ask } }").unwrap();
+        assert!(c.servers.osv.enabled);
+        assert_eq!(c.servers.osv.on_vulnerable, Verdict::Ask);
+        assert_eq!(c.servers.osv.on_malicious, Verdict::Deny);
+        assert_eq!(c.servers.osv.url, "https://api.osv.dev");
     }
 
     #[test]

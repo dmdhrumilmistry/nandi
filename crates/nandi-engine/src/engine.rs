@@ -179,6 +179,17 @@ impl Engine {
         self.servers.register(name, spec, now_ms());
     }
 
+    /// Store an OSV lookup for the package of server `name`.
+    pub fn set_server_advisories(&self, name: &str, check: nandi_core::AdvisoryCheck) {
+        self.servers.set_advisories(name, check);
+    }
+
+    /// Server-level findings for `name` (approval, pinning, binary,
+    /// advisories), as applied to its tool lists.
+    pub fn server_findings(&self, name: &str) -> Vec<nandi_core::Finding> {
+        self.servers.findings(name)
+    }
+
     /// Every known MCP server with its spec, approval, tools, capabilities
     /// and risk, riskiest first.
     pub fn servers(&self) -> Vec<ServerSummary> {

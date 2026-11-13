@@ -18,6 +18,10 @@
 //!   without an exact version. Verdict `servers.on_unpinned`.
 //! - `server.binary-changed`: a local server binary or script whose hash
 //!   differs from the first one seen. Verdict `servers.on_binary_change`.
+//! - `server.malicious-package`: the OSV database has a malicious-package
+//!   report for the server's package. Verdict `servers.osv.on_malicious`.
+//! - `server.vulnerable-package`: the pinned package version has known
+//!   vulnerabilities. Verdict `servers.osv.on_vulnerable`.
 //!
 //! A server with any `deny` finding is quarantined: its tools are hidden
 //! from `tools/list` and every call is denied.
@@ -32,7 +36,10 @@ use nandi_core::capability::{RiskLevel, server_score};
 use nandi_core::config::{ApprovedServer, ServersConfig};
 use nandi_core::server::local_digest;
 use nandi_core::util::{glob_match, truncate};
-use nandi_core::{Capability, Category, Ecosystem, Finding, PackageRef, ServerSpec, Severity, StateStore, Verdict};
+use nandi_core::{
+    Advisory, AdvisoryCheck, Capability, Category, Ecosystem, Finding, PackageRef, ServerSpec, Severity, StateStore,
+    Verdict,
+};
 
 use crate::capability::classify_name;
 use crate::engine::LOCAL_SERVER;
@@ -105,6 +112,9 @@ struct Record {
     last_seen_ms: u64,
     #[serde(default)]
     tools: BTreeMap<String, ToolRisk>,
+    /// Latest OSV lookup for the package.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    advisories: Option<AdvisoryCheck>,
 }
 
 impl Record {
@@ -114,6 +124,15 @@ impl Record {
             Some(h) if pkg.ecosystem == Ecosystem::Local => pkg.with_local_digest(h.clone()),
             _ => pkg,
         })
+    }
+
+    /// Advisories of the lookup for the package that runs now; a lookup
+    /// for an earlier package or version is ignored.
+    fn current_advisories(&self) -> &[Advisory] {
+        match (&self.advisories, self.package()) {
+            (Some(check), Some(pkg)) if check.package == pkg.to_string() => &check.advisories,
+            _ => &[],
+        }
     }
 }
 
@@ -137,6 +156,9 @@ pub struct ServerSummary {
     pub quarantined: bool,
     /// The local binary differs from the first one seen.
     pub binary_changed: bool,
+    /// OSV advisories for the package that runs now.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub advisories: Vec<Advisory>,
     /// 0 - 100: the highest tool score plus a small bonus for breadth.
     pub score: u8,
     pub level: RiskLevel,
@@ -165,6 +187,15 @@ pub struct Servers {
     dirty: Mutex<HashSet<String>>,
     /// Servers whose alert-level findings were already reported on a call.
     reported: Mutex<HashSet<String>>,
+}
+
+/// Up to five ids, then a count of the rest.
+fn list(ids: &[&str]) -> String {
+    let mut s = ids.iter().take(5).copied().collect::<Vec<_>>().join(", ");
+    if ids.len() > 5 {
+        s.push_str(&format!(" and {} more", ids.len() - 5));
+    }
+    s
 }
 
 fn urls_equal(a: &str, b: &str) -> bool {
@@ -296,6 +327,17 @@ impl Servers {
         self.records.read().get(server)?.tools.get(tool).cloned()
     }
 
+    /// Store an OSV lookup for the package of `name`.
+    pub fn set_advisories(&self, name: &str, check: AdvisoryCheck) {
+        let mut records = self.records.write();
+        let Some(rec) = records.get_mut(name) else { return };
+        rec.advisories = Some(check);
+        let rec = rec.clone();
+        drop(records);
+        self.reported.lock().remove(name);
+        self.save(name, &rec);
+    }
+
     /// Accept the current binary hash of `name` as its new pin. Returns
     /// false when there is no changed binary.
     pub fn accept_binary(&self, name: &str) -> bool {
@@ -416,6 +458,41 @@ impl Servers {
                     )),
                 );
             }
+            let advisories = rec.current_advisories();
+            let ids = |malicious: bool| -> Vec<&str> {
+                advisories.iter().filter(|a| a.malicious == malicious).map(|a| a.id.as_str()).collect()
+            };
+            let pkg = || rec.package().map(|p| truncate(&p.to_string(), 120).to_string()).unwrap_or_default();
+            let malicious = ids(true);
+            if !malicious.is_empty() {
+                out.push(
+                    Finding::new(
+                        "server.malicious-package",
+                        Category::Integrity,
+                        Severity::Critical,
+                        self.cfg.osv.on_malicious,
+                        format!("the package of MCP server {name} is reported as malicious"),
+                    )
+                    .with_evidence(format!("{} {}", pkg(), list(&malicious))),
+                );
+            }
+            let vulnerable = ids(false);
+            if !vulnerable.is_empty() {
+                out.push(
+                    Finding::new(
+                        "server.vulnerable-package",
+                        Category::Integrity,
+                        Severity::Medium,
+                        self.cfg.osv.on_vulnerable,
+                        format!(
+                            "the package of MCP server {name} has {} known vulnerabilit{}",
+                            vulnerable.len(),
+                            if vulnerable.len() == 1 { "y" } else { "ies" }
+                        ),
+                    )
+                    .with_evidence(format!("{} {}", pkg(), list(&vulnerable))),
+                );
+            }
         }
         out
     }
@@ -465,6 +542,7 @@ impl Servers {
                     approval: self.approval_of(&name, Some(rec)),
                     quarantined: findings.iter().any(|f| f.verdict == Verdict::Deny),
                     binary_changed: findings.iter().any(|f| f.rule == "server.binary-changed"),
+                    advisories: rec.current_advisories().to_vec(),
                     score,
                     level: RiskLevel::from_score(score),
                     capabilities: caps,
@@ -558,6 +636,39 @@ servers:
         let (s, _) = servers("servers: { on_unknown: ask, approved: [ { name: ok } ] }");
         assert_eq!(s.call_findings("other", true).len(), 1);
         assert_eq!(s.call_findings("other", true).len(), 1);
+    }
+
+    #[test]
+    fn advisories_apply_to_the_package_that_runs() {
+        let (s, store) = servers("");
+        s.register("notes", npx("notes-mcp@1.0.0"), 1);
+        let adv = |id: &str, malicious| Advisory { id: id.into(), summary: String::new(), malicious };
+        s.set_advisories(
+            "notes",
+            AdvisoryCheck {
+                package: "npm:notes-mcp@1.0.0".into(),
+                checked_ms: 1,
+                advisories: vec![adv("MAL-2025-1", true), adv("GHSA-x", false)],
+            },
+        );
+        assert_eq!(
+            rules(&s.findings("notes")),
+            [("server.malicious-package", Verdict::Deny), ("server.vulnerable-package", Verdict::Alert)]
+        );
+        let sum = s.summaries();
+        assert!(sum[0].quarantined && sum[0].advisories.len() == 2);
+        // Blocking findings apply to every call.
+        assert_eq!(rules(&s.call_findings("notes", true)), [("server.malicious-package", Verdict::Deny)]);
+        // Persisted with the record.
+        let again = Servers::new(ServersConfig::default(), store);
+        assert_eq!(again.findings("notes").len(), 2);
+        // A lookup for another version no longer applies.
+        s.register("notes", npx("notes-mcp@1.0.1"), 2);
+        assert!(s.findings("notes").is_empty());
+        assert!(s.summaries()[0].advisories.is_empty());
+        // Unknown servers are ignored.
+        s.set_advisories("nobody", AdvisoryCheck { package: "x".into(), checked_ms: 0, advisories: vec![] });
+        assert!(s.summaries().iter().all(|x| x.name != "nobody"));
     }
 
     #[test]

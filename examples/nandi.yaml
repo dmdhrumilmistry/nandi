@@ -96,6 +96,12 @@ servers:
   approved: []
   #  - { name: github, package: "npm:@modelcontextprotocol/server-github@2025.4.8" }
   #  - { name: copilot, url: "https://api.githubcopilot.com/mcp" }
+  # Look npm and PyPI server packages up in the OSV database (osv.dev) when
+  # `nandi wrap` starts them. Sends the package name and version to OSV.
+  osv:
+    enabled: false
+    on_malicious: deny
+    on_vulnerable: alert
 
 taint:
   # A session that read untrusted content (tool output, web pages, other

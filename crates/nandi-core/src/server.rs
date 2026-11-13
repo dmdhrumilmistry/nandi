@@ -109,6 +109,26 @@ impl FromStr for Ecosystem {
     }
 }
 
+/// A published advisory for a package, from the OSV database.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Advisory {
+    /// OSV id (`MAL-2025-1234`, `GHSA-...`, `PYSEC-...`).
+    pub id: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub summary: String,
+    /// A malicious-package report rather than a vulnerability.
+    pub malicious: bool,
+}
+
+/// Result of an advisory lookup for one exact package reference.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AdvisoryCheck {
+    /// The package as looked up ([`PackageRef`]'s `Display` form).
+    pub package: String,
+    pub checked_ms: u64,
+    pub advisories: Vec<Advisory>,
+}
+
 /// A package reference parsed from a launcher command line.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PackageRef {
