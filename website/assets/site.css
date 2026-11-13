@@ -263,3 +263,9 @@ code, kbd, pre { font-family: var(--mono); }
   .tok.stopped { animation: none; }
 }
 @media (max-width: 900px) { .hero-grid { grid-template-columns: minmax(0, 1fr); } }
+
+/* Diagrams (Mermaid, drawn in the browser) */
+figure.diagram { margin: 1.4em 0; padding: 18px 16px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; overflow-x: auto; text-align: center; }
+figure.diagram pre.mermaid { margin: 0; padding: 0; background: none; border: 0; font: 13px/1.5 var(--mono); color: var(--muted); white-space: pre; text-align: left; }
+figure.diagram pre.mermaid[data-processed="true"] { text-align: center; white-space: normal; }
+figure.diagram svg { max-width: 100%; height: auto; }

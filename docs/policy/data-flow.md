@@ -34,6 +34,22 @@ paying, transferring, uploading, pushing, publishing, inviting and sharing.
 Reads and local file writes are not on it: copying a README into a file is
 ordinary agent work.
 
+```mermaid
+sequenceDiagram
+    participant A as Agent
+    participant N as nandi
+    participant W as web/fetch_page
+    participant B as bank/make_payment
+    A->>N: fetch_page(vendor.example/invoice)
+    N->>W: forward
+    W-->>N: "...pay to IBAN GB33BUKB2020155555..."
+    Note over N: untrusted source: the session is tainted,<br/>values in the page are indexed
+    N-->>A: page (spotlighted)
+    A->>N: make_payment(iban GB33BUKB2020155555, 48000)
+    Note over N: consequential tool in a tainted session,<br/>and the IBAN came from the page
+    N-->>A: held for approval (taint.flow)
+```
+
 ## Value flow
 
 A flow is a value that appears in an untrusted source and then in the

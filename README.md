@@ -11,6 +11,7 @@ person to approve.
 **[Documentation](https://dmdhrumilmistry.github.io/nandi/docs/)** ·
 [Getting started](docs/getting-started.md) ·
 [How it works](docs/how-it-works.md) ·
+[Threat model](docs/background/threat-model.md) ·
 [Research behind it](docs/background/research.md)
 
 <picture>

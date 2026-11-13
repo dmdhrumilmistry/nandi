@@ -86,6 +86,15 @@ The sub-agent sends the token in the `x-nandi-biscuit` header. nandi verifies
 the signature chain and allows a tool only if every block permits it, so an
 attenuated token can never do more than its parent.
 
+```mermaid
+flowchart LR
+    root["Root key<br/>(nandi token keygen)"] -->|mint| planner["Planner token<br/>agent planner<br/>tools github/*"]
+    planner -->|attenuate offline| sub["Sub-agent token<br/>only github/get_issue<br/>expires in 1h"]
+    sub -->|attenuate again| sub2["Narrower still"]
+    planner -.->|revoke the authority block| x1((all three<br/>rejected))
+    sub -.->|revoke block 1| x2((sub-agent tokens<br/>rejected, planner works))
+```
+
 ### Revoking a token
 
 Biscuit tokens are checked offline, so they stay valid until they expire

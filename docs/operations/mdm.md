@@ -14,6 +14,25 @@ and ships in every release archive.
 | Install with | `install-nandi.sh` (Jamf policy) | `Install-Nandi.ps1` (Intune Win32 app) | your package or config tool |
 | Runs per user | launch agents | scheduled tasks | systemd user units |
 
+```mermaid
+flowchart LR
+    subgraph it [IT]
+        M[Jamf, Intune,<br/>Ansible]
+        C[Central nandi<br/>dashboard]
+    end
+    subgraph laptop [Each laptop]
+        S[(Managed settings<br/>profile, registry, /etc)]
+        N[nandi run<br/>per user]
+        D[nandi discover<br/>every 6 hours]
+        AG[Coding agents<br/>with nandi hooks]
+    end
+    M -->|settings| S
+    M -->|install kit| N
+    S --> N
+    AG --> N
+    D -->|report token| C
+```
+
 ## How managed settings apply
 
 Managed settings use the same keys as `nandi.yaml`. Every nandi command
