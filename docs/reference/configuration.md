@@ -30,6 +30,7 @@ merged over this file and cannot be changed by users; see
 | `approvals` | timeout, timeout verdict, webhook | [Approvals](../operations/approvals.md) |
 | `audit` | database, signing key, retention | [Audit log](../operations/audit.md) |
 | `telemetry` | OTLP, Prometheus, webhooks, log format | [Observability](../operations/observability.md) |
+| `exports` | events and admin actions to Splunk, Elastic, syslog SIEMs, webhooks and files | [Exports](../operations/exports.md) |
 | `a2a` | Agent Card signatures and pinning, context binding | [Proxy](../guides/proxy.md#a2a-agents) |
 | `sensor` | host sensor backend, agent names, sensitive paths | [Host sensor](../guides/host-sensor.md) |
 | `ml` | ONNX classifier | [ML classifier](../guides/ml-classifier.md) |

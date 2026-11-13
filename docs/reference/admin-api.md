@@ -15,6 +15,8 @@ page); without a token they only answer loopback clients.
 | PATCH, DELETE | `/v1/users/{name}` | change `roles` or `disabled`; delete |
 | POST | `/v1/users/{name}/rotate` | replace the token; returns the new one once |
 | GET | `/v1/audit/admin?actor=&action=&limit=` | administrative actions from the audit log, newest first |
+| GET | `/v1/exports` | each export with events sent, failed and dropped, the last delivery and error |
+| POST | `/v1/exports/{name}/test` | deliver a test event to one export now (admin) |
 | GET | `/v1/events?agent=&session=&min_verdict=&kind=&since_seq=&limit=` | audit query (default 100, max 1000) |
 | GET | `/v1/events/stream?agent=&min_verdict=` | live events (server-sent events) |
 | GET | `/v1/graph?window_secs=&buckets=&until_ms=` | agents, destinations, tools and decisions over a window ending at `until_ms` (default now), for the dashboard map (default 3600 s and 30 buckets) |

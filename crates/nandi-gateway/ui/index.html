@@ -203,6 +203,7 @@ pre { margin: 6px 0 0; padding: 10px 12px; max-height: 280px; overflow: auto; ba
 #servers, #pins { max-height: 360px; overflow-y: auto; overscroll-behavior: contain; }
 /* who may do what: hide controls a role cannot use */
 body:not(.can-operate) .op { display: none !important; }
+body:not(.can-admin) .needs-admin { display: none !important; }
 .whoami { font-weight: 600; }
 /* audit and users views */
 .view-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
@@ -211,6 +212,9 @@ body:not(.can-operate) .op { display: none !important; }
 .outcome { font-size: 12px; font-weight: 600; text-transform: capitalize; }
 .outcome.ok { color: var(--allow-fg); }
 .outcome.denied, .outcome.failed { color: var(--deny-fg); }
+.c-num { width: 80px; }
+.c-lastdel { width: 280px; }
+.export-err { color: var(--deny-fg); font-size: 12px; white-space: normal; }
 .c-time { width: 150px; } .c-who { width: 140px; } .c-act { width: 190px; } .c-out { width: 90px; }
 .c-roles { width: 26%; } .c-src { width: 110px; } .c-state { width: 90px; } .c-uact { width: 370px; }
 td.uact { white-space: normal; text-align: right; }
@@ -627,6 +631,10 @@ table.tv td.n, table.tv th.n { text-align: right; font-variant-numeric: tabular-
         <button class="btn" type="submit">Apply</button>
       </form>
       <div id="trail"></div>
+    </section>
+    <section class="card" aria-labelledby="h-exports">
+      <header><h2 id="h-exports">Exports</h2><p>Where events and admin actions are sent: SIEMs, webhooks and files (the exports setting)</p></header>
+      <div id="exports"></div>
     </section>
   </div>
 </div>
@@ -2185,7 +2193,7 @@ function showView(name) {
   if (history.replaceState) history.replaceState(null, "", name === "overview" ? "#" : "#" + name);
   clearInterval(mapTimer); clearInterval(auditTimer); clearInterval(polTimer);
   if (name === "map") { loadGraph(); mapTimer = setInterval(loadGraph, 15000); }
-  if (name === "audit") { loadTrail(); auditTimer = setInterval(loadTrail, 15000); }
+  if (name === "audit") { loadTrail(); loadExports(); auditTimer = setInterval(() => { loadTrail(); loadExports(); }, 15000); }
   if (name === "users") loadUsers();
   if (name === "policies") { loadPolicies(); polTimer = setInterval(loadChanges, 15000); }
 }
@@ -2211,6 +2219,7 @@ async function loadMe() {
   document.body.classList.toggle("can-propose", perms.has("policy_propose"));
   document.body.classList.toggle("can-approve", perms.has("policy_approve"));
   $("tab-users").hidden = !perms.has("manage_users");
+  document.body.classList.toggle("can-admin", perms.has("manage_users"));
   $("token-btn").textContent = me ? me.name : "Sign in";
   $("token-btn").classList.toggle("whoami", !!me);
   $("whoami-line").textContent = me
@@ -2252,6 +2261,40 @@ async function loadTrail() {
   $("trail").replaceChildren(el("table", {},
     el("colgroup", {}, el("col", { class: "c-time" }), el("col", { class: "c-who" }), el("col", { class: "c-act" }), el("col", {}), el("col", { class: "c-out" })),
     el("thead", {}, el("tr", {}, ...["When", "Who", "Action", "Target", "Outcome"].map((h) => el("th", { scope: "col" }, h)))), body));
+}
+const exportNote = {};
+const EXPORT_TYPE = { webhook: "Webhook", splunk_hec: "Splunk HEC", elastic: "Elasticsearch", syslog: "Syslog", file: "File" };
+async function loadExports() {
+  let list;
+  try { list = await api("/v1/exports"); } catch (_) { return; }
+  if (!list.length) {
+    $("exports").replaceChildren(el("div", { class: "empty" },
+      "No exports configured. Add an exports entry to send events to Splunk, Elasticsearch, a syslog SIEM, a webhook or a file; see Exports in the documentation."));
+    return;
+  }
+  const body = el("tbody", {});
+  for (const x of list) {
+    const test = el("button", { class: "btn small needs-admin", type: "button" }, "Send test event");
+    const note = el("div", { class: "muted" }, exportNote[x.name] || "");
+    test.addEventListener("click", async () => {
+      test.disabled = true; note.textContent = "Sending...";
+      try { await api("/v1/exports/" + encodeURIComponent(x.name) + "/test", { method: "POST" }); exportNote[x.name] = "Test event delivered"; }
+      catch (_) { exportNote[x.name] = "Test event failed"; }
+      loadExports();
+    });
+    body.append(el("tr", {},
+      el("td", {}, el("strong", {}, x.name), el("div", { class: "muted" }, (EXPORT_TYPE[x.type] || x.type) + ", " + x.format.toUpperCase())),
+      el("td", { class: "mono", title: x.target }, x.target),
+      el("td", { class: "num" }, x.sent.toLocaleString()),
+      el("td", { class: "num" }, x.failed ? el("span", { class: "outcome failed" }, x.failed.toLocaleString()) : "0"),
+      el("td", { class: "num" }, x.dropped ? el("span", { class: "outcome failed" }, x.dropped.toLocaleString()) : "0"),
+      el("td", {}, x.last_ok_ms ? ago(x.last_ok_ms) : "not yet",
+        x.last_error ? el("div", { class: "export-err", title: x.last_error }, x.last_error.slice(0, 120)) : null),
+      el("td", { class: "uact" }, test, note)));
+  }
+  $("exports").replaceChildren(el("table", {},
+    el("colgroup", {}, el("col", { class: "c-who" }), el("col", {}), el("col", { class: "c-num" }), el("col", { class: "c-num" }), el("col", { class: "c-num" }), el("col", { class: "c-lastdel" }), el("col", { class: "c-act" })),
+    el("thead", {}, el("tr", {}, ...["Export", "Target", "Sent", "Failed", "Dropped", "Last delivery", ""].map((h, i) => el("th", { scope: "col", class: i >= 2 && i <= 4 ? "num" : null }, h)))), body));
 }
 $("trail-filter").addEventListener("submit", (e) => { e.preventDefault(); $("trail").replaceChildren(); loadTrail(); });
 $("verify-chain").addEventListener("click", async () => {

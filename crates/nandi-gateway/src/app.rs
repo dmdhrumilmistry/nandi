@@ -65,6 +65,8 @@ pub struct App {
     pub card_keys: TrustedKeys,
     /// Users of the admin API and dashboard.
     pub users: crate::users::Users,
+    /// SIEM, webhook and file exports.
+    pub exports: Arc<crate::exports::Exports>,
     /// Policy documents and change requests from the dashboard.
     pub policies: crate::policies::Policies,
     pub started: Instant,
@@ -128,8 +130,15 @@ impl App {
         let card_keys = TrustedKeys::load(&key_paths).context("loading A2A trusted keys")?;
         let client = client::build();
         let metrics = Arc::new(Metrics::new());
-        let recorder =
-            Recorder::start(audit.clone(), cfg.audit.clone(), cfg.telemetry.clone(), client.clone(), metrics.clone());
+        let exports = crate::exports::Exports::start(&cfg.exports, client.clone()).context("starting exports")?;
+        let recorder = Recorder::start(
+            audit.clone(),
+            cfg.audit.clone(),
+            cfg.telemetry.clone(),
+            client.clone(),
+            metrics.clone(),
+            (!exports.is_empty()).then(|| exports.clone()),
+        );
         let approvals = ApprovalBroker::new(cfg.approvals.clone(), client.clone(), metrics.clone());
         let users = crate::users::Users::new(&cfg.admin, store.clone());
         let policies = crate::policies::Policies::new(store.clone());
@@ -144,6 +153,7 @@ impl App {
             client,
             card_keys,
             users,
+            exports,
             policies,
             started: Instant::now(),
             blocking_eval,

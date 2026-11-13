@@ -66,10 +66,12 @@ impl Recorder {
         telemetry: TelemetryConfig,
         client: HttpClient,
         metrics: Arc<Metrics>,
+        exports: Option<Arc<crate::exports::Exports>>,
     ) -> Self {
         let (tx, rx) = mpsc::channel(QUEUE);
         let (live, _) = broadcast::channel(1024);
-        let worker = Worker { audit, audit_cfg, telemetry, client, metrics: metrics.clone(), live: live.clone() };
+        let worker =
+            Worker { audit, audit_cfg, telemetry, client, metrics: metrics.clone(), live: live.clone(), exports };
         tokio::spawn(worker.run(rx));
         Self { tx, live, metrics }
     }
@@ -103,6 +105,8 @@ struct Worker {
     client: HttpClient,
     metrics: Arc<Metrics>,
     live: broadcast::Sender<Arc<LiveEvent>>,
+    /// SIEM, webhook and file exports.
+    exports: Option<Arc<crate::exports::Exports>>,
 }
 
 impl Worker {
@@ -209,12 +213,12 @@ impl Worker {
                     entry.decision.summary()
                 );
             }
-            let _ = self.live.send(Arc::new(LiveEvent {
-                seq,
-                event: entry.event,
-                decision: entry.decision,
-                applied: entry.applied,
-            }));
+            let live =
+                Arc::new(LiveEvent { seq, event: entry.event, decision: entry.decision, applied: entry.applied });
+            if let Some(x) = &self.exports {
+                x.send(&live);
+            }
+            let _ = self.live.send(live);
         }
 
         if let Some(endpoint) = &self.telemetry.otlp_endpoint
@@ -254,6 +258,7 @@ mod tests {
             TelemetryConfig::default(),
             crate::client::build(),
             metrics,
+            None,
         );
         let mut live = rec.subscribe();
         let ev = Event::new(

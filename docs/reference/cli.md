@@ -251,15 +251,16 @@ Options:
 ### nandi audit export
 
 ```text
-Export every record as JSON lines
+Export every record as JSON lines: the signed records (verifiable with `audit verify --export`), or with --format the same events as a SIEM takes them, to backfill one
 
 Usage: nandi audit export [OPTIONS] --out <OUT>
 
 Options:
   -c, --config <CONFIG>        Configuration file [env: NANDI_CONFIG=] [default: nandi.yaml]
       --out <OUT>              Output file, `-` for stdout
-      --db <DB>                
+      --format <FORMAT>        json, ocsf, ecs or cef instead of the signed records
       --log-level <LOG_LEVEL>  Log filter (error, warn, info, debug, trace or a tracing directive) [env: NANDI_LOG=] [default: info]
+      --db <DB>                
       --key <KEY>              
   -h, --help                   Print help
 ```
