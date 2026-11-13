@@ -198,6 +198,9 @@ pre { margin: 6px 0 0; padding: 10px 12px; max-height: 280px; overflow: auto; ba
 .map-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 14px; }
 .map-filters .seg { flex: none; }
 .map-filters .muted { color: var(--muted); }
+/* long lists scroll inside their card instead of stretching the column */
+#approvals { max-height: 640px; overflow-y: auto; overscroll-behavior: contain; }
+#servers, #pins { max-height: 360px; overflow-y: auto; overscroll-behavior: contain; }
 .map-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); gap: 16px; }
 .map-grid .wide { grid-column: 1 / -1; }
 .chart { position: relative; padding: 10px 14px 14px; }
@@ -209,10 +212,15 @@ pre { margin: 6px 0 0; padding: 10px 12px; max-height: 280px; overflow: auto; ba
 .legend .shape.agent { border-radius: 50%; background: var(--ink); }
 .legend .shape.server { border-radius: 3px; }
 .legend .shape.model { transform: rotate(45deg) scale(.85); }
+.legend .shape.merlons { position: relative; margin-top: 4px; }
+.legend .shape.merlons::before { content: ""; position: absolute; left: 0; right: 0; top: -6px; height: 3px;
+  background: linear-gradient(90deg, var(--ink) 0 30%, transparent 30% 70%, var(--ink) 70% 100%); }
 .legend .shape.tool { width: 8px; height: 8px; border-radius: 50%; border-width: 1.5px; }
 .tip { position: absolute; pointer-events: none; z-index: 5; min-width: 160px; padding: 8px 10px; background: var(--surface);
   border: 1px solid var(--line-2); border-radius: 8px; box-shadow: 0 6px 18px rgba(0,0,0,.12); font-size: 12px; }
 .tip .t { color: var(--muted); margin-bottom: 4px; }
+.tip .note { color: var(--ink); font-weight: 600; margin-bottom: 4px; }
+.merlon { fill: var(--ink); }
 .tip .row { display: flex; align-items: center; gap: 8px; }
 .tip .row b { font-variant-numeric: tabular-nums; min-width: 28px; text-align: right; font-weight: 650; }
 .tip .row s { display: inline-block; width: 12px; height: 3px; border-radius: 2px; text-decoration: none; }
@@ -378,7 +386,7 @@ table.tv td.n, table.tv th.n { text-align: right; font-variant-numeric: tabular-
       </section>
       <section class="card" aria-labelledby="h-pins">
         <header><h2 id="h-pins">Tool integrity</h2><span class="count" id="pins-count"></span></header>
-        <div class="list servers" id="servers" aria-label="MCP servers by risk"></div>
+        <div class="list servers" id="servers" aria-label="MCP servers by risk" tabindex="0"></div>
         <div class="list" id="pins"></div>
       </section>
       <section class="card" aria-labelledby="h-kill">
@@ -865,6 +873,11 @@ const SEV = { info: 0, low: 1, medium: 2, high: 3, critical: 4 };
 const ITEM_KIND = { client: "Client", mcp_server: "MCP server", hook: "Hook", skill: "Skill", plugin: "Plugin", extension: "Extension" };
 const FIX = { wrap: "Wrap with nandi", route: "Route through nandi", hook: "Install nandi hook" };
 
+// `quoted` parts of a message as inline code (messages are written for the terminal).
+function codeText(msg) {
+  return String(msg || "").split("`").map((part, i) => (i % 2 ? el("code", { class: "mono" }, part) : part)).filter((x) => x !== "");
+}
+
 function sevChip(sev) {
   return el("span", { class: "chip s-" + sev }, icon(SEV[sev] >= 3 ? "deny" : "alert"), sev);
 }
@@ -922,12 +935,12 @@ function footprintDetail(it, sugg) {
   for (const f of it.findings) {
     list.append(el("div", { class: "finding" },
       el("span", { class: "sev " + f.severity }, f.severity),
-      el("div", {}, el("span", { class: "rule" }, f.rule), "  ", f.message, f.evidence ? el("div", { class: "ev" }, f.evidence) : null)));
+      el("div", {}, el("span", { class: "rule" }, f.rule), "  ", ...codeText(f.message), f.evidence ? el("div", { class: "ev" }, f.evidence) : null)));
   }
   box.append(list);
   const where = it.source || it.path;
   if (where) box.append(el("div", { class: "muted mono" }, where));
-  if (sugg) box.append(el("p", { class: "fix-note" }, sugg.message), el("pre", {}, sugg.snippet));
+  if (sugg) box.append(el("p", { class: "fix-note" }, ...codeText(sugg.message)), el("pre", {}, sugg.snippet));
   return el("tr", { class: "detail" }, box);
 }
 
@@ -937,7 +950,7 @@ function footprintRow(inv, it, names) {
   const row = el("tr", { class: "row", tabindex: "0", "aria-expanded": "false" },
     el("td", {}, sevChip(maxSev(it.findings))),
     el("td", {}, itemLabel(it, names)),
-    el("td", { title: it.findings.map((f) => f.rule).join(", ") }, el("span", { class: "mono-chip" }, top.rule), top.message,
+    el("td", { title: it.findings.map((f) => f.rule).join(", ") }, el("span", { class: "mono-chip" }, top.rule), ...codeText(top.message),
       it.findings.length > 1 ? el("span", { class: "muted" }, "  +" + (it.findings.length - 1)) : null),
     el("td", { class: "fp-fix" }, fixLabel(it, sugg)));
   const toggle = () => {
@@ -1033,6 +1046,9 @@ const LABEL = { allow: "Allowed", alert: "Alert", redact: "Redacted", ask: "Held
 const NODE_KIND = { agent: "Agent", server: "MCP server", model: "Model", peer: "Agent (A2A)", tool: "Tool", host: "Host" };
 const MARK = [[1.5, 3, 21, 2.2], [3.5, 7.6, 17, 1.8], [4.5, 11.6, 15, 1.8], [6, 5, 2.4, 16], [15.6, 5, 2.4, 16]];
 let windowSecs = 3600, graphData = null, tableMode = false, mapTimer = null;
+// server name -> { level, score, quarantined } from /v1/servers
+let serverRisk = {};
+const MERLONS = { medium: 1, high: 2, critical: 3 };
 
 function s(tag, attrs, ...kids) {
   const e = document.createElementNS(NS, tag);
@@ -1062,9 +1078,10 @@ function tipFor(container) {
   if (!t) { t = hh("div", { class: "tip", role: "status" }); t.hidden = true; container.append(t); }
   return t;
 }
-function showTip(container, x, y, title, counts) {
+function showTip(container, x, y, title, counts, notes) {
   const t = tipFor(container);
   t.replaceChildren(hh("div", { class: "t" }, title));
+  for (const line of notes || []) t.append(hh("div", { class: "note" }, line));
   for (const v of ORDER.slice().reverse()) {
     const n = counts[v] || 0;
     if (!n && v !== "allow") continue;
@@ -1078,11 +1095,11 @@ function showTip(container, x, y, title, counts) {
   t.style.top = Math.max(6, y + 14) + "px";
 }
 function hideTip(container) { const t = container.querySelector(".tip"); if (t) t.hidden = true; }
-function bindTip(el, container, title, counts) {
-  const at = (e) => { const r = container.getBoundingClientRect(); showTip(container, e.clientX - r.left, e.clientY - r.top, title, counts); };
+function bindTip(el, container, title, counts, notes) {
+  const at = (e) => { const r = container.getBoundingClientRect(); showTip(container, e.clientX - r.left, e.clientY - r.top, title, counts, notes); };
   el.addEventListener("pointermove", at);
   el.addEventListener("pointerleave", () => hideTip(container));
-  el.addEventListener("focus", () => { const r = el.getBoundingClientRect(), c = container.getBoundingClientRect(); showTip(container, r.left - c.left + r.width / 2, r.top - c.top + r.height / 2, title, counts); });
+  el.addEventListener("focus", () => { const r = el.getBoundingClientRect(), c = container.getBoundingClientRect(); showTip(container, r.left - c.left + r.width / 2, r.top - c.top + r.height / 2, title, counts, notes); });
   el.addEventListener("blur", () => hideTip(container));
 }
 
@@ -1090,7 +1107,7 @@ function bindTip(el, container, title, counts) {
 function mandala(g) {
   const box = $("mandala");
   const W = 720, C = 360, R1 = 128, R2 = 236, R3 = 318;
-  const svg = s("svg", { viewBox: "0 0 720 720", role: "group", "aria-label": "Radial map of agents, destinations and tools" });
+  const svg = s("svg", { viewBox: "-40 0 800 720", role: "group", "aria-label": "Radial map of agents, destinations and tools" });
   // orbits and petals
   for (const r of [R1, R2, R3]) svg.append(s("circle", { class: "orbit", cx: C, cy: C, r }));
   for (let i = 0; i < 16; i++) {
@@ -1164,11 +1181,21 @@ function mandala(g) {
       role: "img", "aria-label": `${NODE_KIND[n.kind] || n.kind} ${n.label}: ${total(n.counts)} events` });
     grp.dataset.id = n.id;
     let shape;
+    const risk = n.kind === "server" ? serverRisk[n.label] : null;
     if (n.kind === "server") shape = s("rect", { class: "shape", x: -r, y: -r, width: 2 * r, height: 2 * r, rx: 3 });
     else if (n.kind === "model" || n.kind === "peer") shape = s("rect", { class: "shape", x: -r * .82, y: -r * .82, width: 1.64 * r, height: 1.64 * r, rx: 2, transform: "rotate(45)" });
     else shape = s("circle", { class: "shape", r });
     grp.append(s("circle", { class: "hit", r: Math.max(14, r + 6) }), shape);
     if (w !== "allow") grp.append(s("circle", { class: "ring", r: r + 4.5, stroke: color(w) }));
+    // risk as battlements on the server's top edge: one per level above low
+    const m = risk ? MERLONS[risk.level] || 0 : 0;
+    // sit above the decision ring when there is one
+    const top = -(w !== "allow" ? r + 7 : r + 1.5) - 6;
+    for (let i = 0; i < m; i++) {
+      const mw = 5, gap = 3.5, x0 = -((m * mw + (m - 1) * gap) / 2) + i * (mw + gap);
+      grp.append(s("rect", { class: "merlon", x: x0.toFixed(1), y: top.toFixed(1), width: mw, height: 6, rx: 0.8 }));
+    }
+    if (risk) grp.setAttribute("aria-label", grp.getAttribute("aria-label") + `, ${risk.level} risk`);
     nodeLayer.append(grp);
     nodeEls.push(grp);
     // labels: agents and destinations always, tools when few
@@ -1188,7 +1215,7 @@ function mandala(g) {
       t.dataset.id = n.id;
       labelLayer.append(t);
     }
-    bindTip(grp, box, `${NODE_KIND[n.kind] || n.kind}: ${n.label}`, n.counts);
+    bindTip(grp, box, `${NODE_KIND[n.kind] || n.kind}: ${n.label}`, n.counts, riskNotes(risk));
     // focus mode: highlight this node's neighbourhood
     const focusOn = () => {
       const keep = new Set([n.id]);
@@ -1215,7 +1242,15 @@ function mandala(g) {
     hh("span", {}, hh("i", { class: "shape server" }), "MCP server"),
     hh("span", {}, hh("i", { class: "shape model" }), "Model or A2A agent"),
     hh("span", {}, hh("i", { class: "shape tool" }), "Tool"),
+    hh("span", {}, hh("i", { class: "shape server merlons" }), "Marks on top: medium, high or critical risk"),
   ]);
+}
+
+function riskNotes(risk) {
+  if (!risk) return [];
+  const lines = [`${risk.level[0].toUpperCase() + risk.level.slice(1)} risk, score ${risk.score}`];
+  if (risk.quarantined) lines.push("Quarantined: tools hidden, calls denied");
+  return lines;
 }
 
 // ---------- gate flow ----------
@@ -1338,8 +1373,14 @@ function timeline(g) {
 function table(g) {
   const lbl = (id) => (g.nodes.find((n) => n.id === id) || { label: id }).label;
   const rows = g.edges.slice().sort((a, b) => total(b.counts) - total(a.counts)).map((e) =>
-    hh("tr", {}, hh("td", {}, lbl(e.source)), hh("td", {}, lbl(e.target)), ...ORDER.map((v) => hh("td", { class: "n" }, String(e.counts[v] || 0)))));
-  return hh("table", { class: "tv" }, hh("thead", {}, hh("tr", {}, hh("th", {}, "Agent"), hh("th", {}, "Destination"), ...ORDER.map((v) => hh("th", { class: "n" }, LABEL[v])))), hh("tbody", {}, ...rows));
+    hh("tr", {}, hh("td", {}, lbl(e.source)), hh("td", {}, lbl(e.target)), hh("td", {}, riskCell(e.target)),
+      ...ORDER.map((v) => hh("td", { class: "n" }, String(e.counts[v] || 0)))));
+  return hh("table", { class: "tv" }, hh("thead", {}, hh("tr", {}, hh("th", {}, "Agent"), hh("th", {}, "Destination"), hh("th", {}, "Risk"),
+    ...ORDER.map((v) => hh("th", { class: "n" }, LABEL[v])))), hh("tbody", {}, ...rows));
+}
+function riskCell(id) {
+  const r = id.startsWith("server:") ? serverRisk[id.slice(7)] : null;
+  return r ? `${r.level} ${r.score}${r.quarantined ? ", quarantined" : ""}` : "-";
 }
 function toolTable(g) {
   const lbl = (id) => (g.nodes.find((n) => n.id === id) || { label: id }).label;
@@ -1366,6 +1407,8 @@ function emptyState(text) {
 async function loadGraph() {
   try {
     graphData = await api("/v1/graph?window_secs=" + windowSecs, { quiet404: true });
+    const servers = await api("/v1/servers", { quiet404: true }).catch(() => null);
+    serverRisk = Object.fromEntries((servers || []).map((x) => [x.name, { level: x.level, score: x.score, quarantined: !!x.quarantined }]));
   } catch (_) { return; }
   renderMap();
 }
