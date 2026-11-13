@@ -21,7 +21,7 @@ merged over this file and cannot be changed by users; see
 | `report` | where `nandi discover --report` sends inventories | [Fleets](../operations/mdm.md#reporting-to-a-central-dashboard) |
 | `routes` | upstreams on the proxy, credential injection | [Proxy](../guides/proxy.md) |
 | `identity` | anonymous access, API keys, JWT, Biscuit | [Identity](../operations/identity.md) |
-| `policy` | default action, rule and Cedar files | [Rules](../policy/rules.md), [Cedar](../policy/cedar.md) |
+| `policy` | default action, rule and Cedar files, policy written in the dashboard and its review | [Rules](../policy/rules.md), [Cedar](../policy/cedar.md), [Dashboard policy](../policy/changes.md) |
 | `tools` | pinning, drift and unlisted verdicts, description scanning, list filtering | [MCP servers](../guides/mcp.md) |
 | `servers` | approved MCP servers, verdicts for unknown, unpinned and changed servers, OSV lookups | [Server risk](../policy/capabilities.md#server-supply-chain) |
 | `taint`, `plan` | untrusted content, consequential tools, value flow, spotlighting, plans | [Data flow](../policy/data-flow.md) |

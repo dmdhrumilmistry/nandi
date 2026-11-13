@@ -56,6 +56,7 @@
 
 mod cedar;
 pub mod matcher;
+pub mod packs;
 mod plan;
 mod rules;
 
@@ -148,6 +149,24 @@ impl Outcome {
     }
 }
 
+/// What an in-memory policy document contains.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SourceKind {
+    /// YAML rules, sequences and budgets.
+    Rules,
+    /// Cedar policies.
+    Cedar,
+}
+
+/// An in-memory policy document, named for error messages.
+#[derive(Debug, Clone)]
+pub struct Source {
+    pub name: String,
+    pub kind: SourceKind,
+    pub text: String,
+}
+
 /// Compiled, immutable policy state. Cheap to share across threads; hot
 /// reload builds a new set and swaps it in.
 #[derive(Debug)]
@@ -170,6 +189,33 @@ impl PolicySet {
         let cedar = cfg.cedar.iter().map(|p| read(p)).collect::<Result<Vec<_>>>()?;
         let entities = cfg.cedar_entities.as_deref().map(read).transpose()?;
         let rules = cfg.rules.iter().map(|p| read(p)).collect::<Result<Vec<_>>>()?;
+        Self::build(
+            cfg.default,
+            &cedar.iter().map(|(n, t)| (n.clone(), t.as_str())).collect::<Vec<_>>(),
+            entities.as_ref().map(|(n, t)| (n.clone(), t.as_str())),
+            &rules.iter().map(|(n, t)| (n.clone(), t.as_str())).collect::<Vec<_>>(),
+        )
+    }
+
+    /// [`PolicySet::load`] plus in-memory documents (policies written in
+    /// the dashboard), compiled together as one set.
+    pub fn load_with(cfg: &PolicyConfig, base_dir: &Path, extra: &[Source]) -> Result<Self> {
+        let read = |p: &Path| -> Result<(String, String)> {
+            let path = base_dir.join(p);
+            let text = std::fs::read_to_string(&path)
+                .map_err(|e| Error::Policy(format!("cannot read {}: {e}", path.display())))?;
+            Ok((path.display().to_string(), text))
+        };
+        let mut cedar = cfg.cedar.iter().map(|p| read(p)).collect::<Result<Vec<_>>>()?;
+        let entities = cfg.cedar_entities.as_deref().map(read).transpose()?;
+        let mut rules = cfg.rules.iter().map(|p| read(p)).collect::<Result<Vec<_>>>()?;
+        for s in extra {
+            let named = (s.name.clone(), s.text.clone());
+            match s.kind {
+                SourceKind::Rules => rules.push(named),
+                SourceKind::Cedar => cedar.push(named),
+            }
+        }
         Self::build(
             cfg.default,
             &cedar.iter().map(|(n, t)| (n.clone(), t.as_str())).collect::<Vec<_>>(),
@@ -410,8 +456,22 @@ rules:
             cedar: vec!["main.cedar".into(), "extra.cedar".into()],
             cedar_entities: Some("entities.json".into()),
             rules: vec!["policies/a.yaml".into(), "policies/b.yaml".into()],
+            ..PolicyConfig::default()
         };
         let p = PolicySet::load(&cfg, dir.path()).unwrap();
+        // In-memory documents compile together with the files.
+        let extra = [Source {
+            name: "dashboard/extra".into(),
+            kind: SourceKind::Rules,
+            text: "rules:\n  - { id: from-dashboard, match: { tool: nope }, action: deny }\n".into(),
+        }];
+        assert!(PolicySet::load_with(&cfg, dir.path(), &extra).is_ok());
+        let dup = [Source {
+            name: "dashboard/dup".into(),
+            kind: SourceKind::Rules,
+            text: "rules: [{ id: from-dashboard, action: deny }, { id: from-dashboard, action: deny }]".into(),
+        }];
+        assert!(PolicySet::load_with(&cfg, dir.path(), &dup).is_err());
         assert!(p.validate().is_empty(), "{:?}", p.validate());
         let none = json!({});
         assert!(p.evaluate(&call("root", "s", "anything", &none), &[]).permitted);

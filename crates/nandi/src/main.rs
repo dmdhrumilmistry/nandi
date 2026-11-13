@@ -4,7 +4,6 @@
 mod discover;
 mod init;
 mod offline;
-mod packs;
 mod remote;
 
 use std::io::IsTerminal;
@@ -655,13 +654,13 @@ async fn dispatch(cli: Cli) -> anyhow::Result<i32> {
             Ok(hook::client_main(format, &url, token.as_deref(), fail_open).await)
         }
         Cmd::Policy { cmd: PolicyCmd::Packs } => {
-            for p in packs::PACKS {
+            for p in nandi_policy::packs::PACKS {
                 println!("{:<20} {}", p.name, p.summary());
             }
             println!("\nSave one with `nandi policy pack <name> > policies/<name>.yaml` and add it to policy.rules.");
             Ok(0)
         }
-        Cmd::Policy { cmd: PolicyCmd::Pack { name } } => match packs::find(&name) {
+        Cmd::Policy { cmd: PolicyCmd::Pack { name } } => match nandi_policy::packs::find(&name) {
             Some(p) => {
                 print!("{}", p.yaml);
                 Ok(0)

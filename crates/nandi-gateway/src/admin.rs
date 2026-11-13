@@ -34,6 +34,7 @@ use nandi_core::Verdict;
 use nandi_core::config::resolve_secret;
 use nandi_core::util::sha256_hex;
 use nandi_discover::Inventory;
+use nandi_policy::PolicySet;
 
 use crate::App;
 use crate::hook::{self, HookFormat};
@@ -183,6 +184,16 @@ fn build(app: Arc<App>, shutdown: watch::Receiver<bool>) -> Router {
             "/v1/inventory",
             get(inventory_list).post(inventory_report).layer(DefaultBodyLimit::max(MAX_INVENTORY_BYTES)),
         )
+        .route("/v1/policies", get(policies_overview))
+        .route("/v1/policies/packs/{name}", get(policy_pack))
+        .route("/v1/policies/docs/{name}/versions", get(policy_versions))
+        .route("/v1/policies/validate", post(policy_validate))
+        .route("/v1/policies/preview", post(policy_preview))
+        .route("/v1/policies/changes", get(policy_changes).post(policy_propose))
+        .route("/v1/policies/changes/{id}", get(policy_change))
+        .route("/v1/policies/changes/{id}/approve", post(policy_approve))
+        .route("/v1/policies/changes/{id}/reject", post(policy_reject))
+        .route("/v1/policies/changes/{id}/withdraw", post(policy_withdraw))
         .route("/v1/me", get(me))
         .route("/v1/users", get(users_list).post(user_create))
         .route("/v1/users/{name}", axum::routing::patch(user_update).delete(user_delete))
@@ -226,8 +237,10 @@ async fn guard(State(st): State<AdminState>, req: Request, next: Next) -> Respon
     }
     // Every change made through the admin API is recorded, attributed to
     // the principal, with its body (agent traffic is recorded as events).
-    let audited =
-        method != Method::GET && method != Method::HEAD && !path.starts_with("/v1/hook/") && path != "/v1/inventory";
+    let audited = method != Method::GET
+        && method != Method::HEAD
+        && !path.starts_with("/v1/hook/")
+        && !matches!(path.as_str(), "/v1/inventory" | "/v1/policies/validate" | "/v1/policies/preview");
     if !audited {
         let mut req = req;
         req.extensions_mut().insert(principal);
@@ -245,8 +258,11 @@ async fn guard(State(st): State<AdminState>, req: Request, next: Next) -> Respon
     let (action, mut target) = describe(&method, &path);
     if target.is_empty() {
         // e.g. user.create, pin approvals: the body names what was acted on.
-        target =
-            ["name", "id"].iter().find_map(|k| details.get(*k).and_then(Value::as_str)).unwrap_or_default().to_string();
+        target = ["name", "id", "title"]
+            .iter()
+            .find_map(|k| details.get(*k).and_then(Value::as_str))
+            .unwrap_or_default()
+            .to_string();
     }
     let outcome = if resp.status().is_success() { "ok" } else { "failed" };
     let details = if resp.status().is_success() {
@@ -306,6 +322,10 @@ fn required(method: &Method, path: &str) -> Option<Permission> {
         "/v1/inventory" if method == Method::POST => Report,
         "/v1/policy/reload" => PolicyApprove,
         _ if read => Read,
+        p if p.starts_with("/v1/policies/changes/") && (p.ends_with("/approve") || p.ends_with("/reject")) => {
+            PolicyApprove
+        }
+        p if p.starts_with("/v1/policies") => PolicyPropose,
         p if p.starts_with("/v1/approvals/")
             || p.starts_with("/v1/agents/")
             || p.starts_with("/v1/pins/")
@@ -332,6 +352,8 @@ fn describe(method: &Method, path: &str) -> (String, String) {
         ["tokens", "revoke"] => ("token.revoke".into(), String::new()),
         ["policy", "reload"] => ("policy.reload".into(), String::new()),
         ["users"] => ("user.create".into(), String::new()),
+        ["policies", "changes"] => ("policy.change.propose".into(), String::new()),
+        ["policies", "changes", id, verb] => (format!("policy.change.{verb}"), id.to_string()),
         ["users", name] if m == "patch" => ("user.update".into(), name.to_string()),
         ["users", name] if m == "delete" => ("user.delete".into(), name.to_string()),
         ["users", name, verb] => (format!("user.{verb}"), name.to_string()),
@@ -666,6 +688,193 @@ async fn deny(
     body: Bytes,
 ) -> ApiResult {
     resolve_approval(&st, &who, &id, false, &body)
+}
+
+// ----- policies and change requests ------------------------------------------
+
+use crate::policies::{ChangeError, Op};
+
+fn change_error(e: ChangeError) -> ApiError {
+    let code = match e {
+        ChangeError::Invalid(_) => StatusCode::BAD_REQUEST,
+        ChangeError::NotFound => StatusCode::NOT_FOUND,
+        ChangeError::Forbidden(_) => StatusCode::FORBIDDEN,
+        ChangeError::Closed(_) | ChangeError::SecondPersonRequired | ChangeError::Conflict(_) => StatusCode::CONFLICT,
+    };
+    ApiError(code, e.to_string())
+}
+
+fn changes_allowed(st: &AdminState) -> Result<(), ApiError> {
+    if st.app.policy_changes_enabled() {
+        Ok(())
+    } else {
+        Err(ApiError(
+            StatusCode::CONFLICT,
+            "policy changes are off here (managed settings apply; set policy.changes.enabled to allow them)".into(),
+        ))
+    }
+}
+
+async fn policies_overview(State(st): State<AdminState>) -> ApiResult {
+    let app = &st.app;
+    let read = |p: &std::path::Path, kind: &str| {
+        let path = app.base_dir.join(p);
+        json!({ "path": path.display().to_string(), "kind": kind,
+                "content": std::fs::read_to_string(&path).unwrap_or_else(|e| format!("# cannot read: {e}")) })
+    };
+    let mut files: Vec<Value> = app.cfg.policy.rules.iter().map(|p| read(p, "rules")).collect();
+    files.extend(app.cfg.policy.cedar.iter().map(|p| read(p, "cedar")));
+    let packs: Vec<Value> =
+        nandi_policy::packs::PACKS.iter().map(|p| json!({ "name": p.name, "summary": p.summary() })).collect();
+    ok_json(json!({
+        "editable": app.policy_changes_enabled(),
+        "require_review": app.cfg.policy.changes.require_review,
+        "default": app.cfg.policy.default,
+        "files": files,
+        "documents": app.policies.docs(),
+        "packs": packs,
+        "pending": app.policies.changes().iter().filter(|c| c.status == crate::policies::Status::Pending).count(),
+    }))
+}
+
+async fn policy_pack(Path(name): Path<String>) -> ApiResult {
+    let p = nandi_policy::packs::find(&name).ok_or_else(|| ApiError::not_found(format!("no pack {name}")))?;
+    ok_json(json!({ "name": p.name, "summary": p.summary(), "content": p.yaml }))
+}
+
+async fn policy_versions(State(st): State<AdminState>, Path(name): Path<String>) -> ApiResult {
+    ok_json(st.app.policies.versions(&name))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct OpsBody {
+    ops: Vec<Op>,
+}
+
+fn parse<T: serde::de::DeserializeOwned>(body: &Bytes) -> Result<T, ApiError> {
+    serde_json::from_slice(body).map_err(|e| ApiError::bad_request(format!("invalid body: {e}")))
+}
+
+async fn policy_validate(State(st): State<AdminState>, body: Bytes) -> ApiResult {
+    let b: OpsBody = parse(&body)?;
+    let app = st.app.clone();
+    let v = tokio::task::spawn_blocking(move || app.policies.validate(&app.cfg, &app.base_dir, &b.ops))
+        .await
+        .map_err(ApiError::internal)?;
+    ok_json(v)
+}
+
+/// Validate `ops` and, when they compile and the audit log is on, replay
+/// recent events through the current and the candidate policy.
+fn validate_and_preview(app: &App, ops: &[Op]) -> (crate::policies::Validation, Option<crate::policies::Impact>) {
+    let v = app.policies.validate(&app.cfg, &app.base_dir, ops);
+    if !v.ok {
+        return (v, None);
+    }
+    let impact = app.audit.as_ref().and_then(|log| {
+        let current = PolicySet::load_with(&app.cfg.policy, &app.base_dir, &app.policies.sources()).ok()?;
+        let candidate = app.policies.compile(&app.cfg, &app.base_dir, ops).ok()?;
+        Some(crate::policies::preview(&app.cfg, log, current, candidate, app.cfg.policy.changes.preview_events))
+    });
+    (v, impact)
+}
+
+async fn policy_preview(State(st): State<AdminState>, body: Bytes) -> ApiResult {
+    let b: OpsBody = parse(&body)?;
+    let app = st.app.clone();
+    let (validation, impact) =
+        tokio::task::spawn_blocking(move || validate_and_preview(&app, &b.ops)).await.map_err(ApiError::internal)?;
+    ok_json(json!({ "validation": validation, "impact": impact }))
+}
+
+async fn policy_changes(State(st): State<AdminState>) -> ApiResult {
+    ok_json(st.app.policies.changes())
+}
+
+async fn policy_change(State(st): State<AdminState>, Path(id): Path<String>) -> ApiResult {
+    ok_json(st.app.policies.change(&id).ok_or_else(|| ApiError::not_found("no such change"))?)
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ProposeBody {
+    title: String,
+    #[serde(default)]
+    description: String,
+    ops: Vec<Op>,
+}
+
+async fn policy_propose(State(st): State<AdminState>, Extension(who): Extension<Principal>, body: Bytes) -> ApiResult {
+    changes_allowed(&st)?;
+    let b: ProposeBody = parse(&body)?;
+    let app = st.app.clone();
+    let c = tokio::task::spawn_blocking(move || {
+        let (validation, impact) = validate_and_preview(&app, &b.ops);
+        app.policies.propose(&who.name, &b.title, &b.description, b.ops, validation, impact)
+    })
+    .await
+    .map_err(ApiError::internal)?
+    .map_err(change_error)?;
+    ok_json(c)
+}
+
+#[derive(Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+struct CommentBody {
+    #[serde(default)]
+    comment: String,
+}
+
+fn comment_of(body: &Bytes) -> Result<String, ApiError> {
+    if body.iter().all(u8::is_ascii_whitespace) {
+        return Ok(String::new());
+    }
+    Ok(parse::<CommentBody>(body)?.comment)
+}
+
+async fn policy_approve(
+    State(st): State<AdminState>,
+    Extension(who): Extension<Principal>,
+    Path(id): Path<String>,
+    body: Bytes,
+) -> ApiResult {
+    changes_allowed(&st)?;
+    let comment = comment_of(&body)?;
+    let app = st.app.clone();
+    let c = tokio::task::spawn_blocking(move || -> Result<_, ChangeError> {
+        let author = app.policies.change(&id).map(|c| c.author).unwrap_or_default();
+        let others = app.others_can_approve(&author);
+        let (c, set) =
+            app.policies.approve(&id, &who.name, &comment, app.cfg.policy.changes.require_review, others, |ops| {
+                app.policies.compile(&app.cfg, &app.base_dir, ops)
+            })?;
+        app.engine.set_policy(set);
+        tracing::info!(change = %c.id, by = %who.name, "policy change applied");
+        Ok(c)
+    })
+    .await
+    .map_err(ApiError::internal)?
+    .map_err(change_error)?;
+    ok_json(c)
+}
+
+async fn policy_reject(
+    State(st): State<AdminState>,
+    Extension(who): Extension<Principal>,
+    Path(id): Path<String>,
+    body: Bytes,
+) -> ApiResult {
+    let comment = comment_of(&body)?;
+    ok_json(st.app.policies.reject(&id, &who.name, &comment).map_err(change_error)?)
+}
+
+async fn policy_withdraw(
+    State(st): State<AdminState>,
+    Extension(who): Extension<Principal>,
+    Path(id): Path<String>,
+) -> ApiResult {
+    ok_json(st.app.policies.withdraw(&id, &who.name).map_err(change_error)?)
 }
 
 // ----- users and the admin audit trail ---------------------------------------------
@@ -1183,6 +1392,121 @@ mod tests {
         assert_eq!(rows[0].1, "user.update");
         assert!(!trail.to_string().contains(op) && !trail.to_string().contains(viewer));
         assert!(app.audit.as_ref().unwrap().verify().unwrap().ok);
+    }
+
+    #[tokio::test]
+    async fn policy_changes_need_a_second_person_and_take_effect() {
+        let mut cfg = Config::default();
+        cfg.admin.token = Some("root-token".into());
+        let app = App::ephemeral_audited(cfg, rules()).unwrap();
+        let r = router(app.clone());
+        let remote = "10.0.0.11:1234";
+        let tok = |v: &Value| -> &'static str { Box::leak(v["token"].as_str().unwrap().to_string().into_boxed_str()) };
+        let (_, v) = send(
+            &r,
+            request(
+                "POST",
+                "/v1/users",
+                remote,
+                Some("root-token"),
+                Some(json!({ "name": "ed", "roles": ["policy_editor"] })),
+            ),
+        )
+        .await;
+        let ed = tok(&v);
+        let (_, v) = send(
+            &r,
+            request(
+                "POST",
+                "/v1/users",
+                remote,
+                Some("root-token"),
+                Some(json!({ "name": "pat", "roles": ["policy_approver"] })),
+            ),
+        )
+        .await;
+        let pat = tok(&v);
+        let put = json!({ "op": "put", "name": "no-curl", "kind": "rules",
+            "content": "rules:\n  - { id: no-curl, match: { tool: curl }, action: deny }\n" });
+
+        // Validation catches broken policies; proposals must compile.
+        let (_, v) = send(&r, request("POST", "/v1/policies/validate", remote, Some(ed),
+            Some(json!({ "ops": [{ "op": "put", "name": "x", "kind": "rules", "content": "rules: [{ id: y, action: perhaps }]" }] })))).await;
+        assert_eq!(v["ok"], false, "{v}");
+        let (s, _) = send(&r, request("POST", "/v1/policies/changes", remote, Some(ed),
+            Some(json!({ "title": "broken", "ops": [{ "op": "put", "name": "x", "kind": "rules", "content": "rules: [" }] })))).await;
+        assert_eq!(s, StatusCode::BAD_REQUEST);
+
+        // The editor proposes; editors cannot approve.
+        let (s, change) = send(
+            &r,
+            request(
+                "POST",
+                "/v1/policies/changes",
+                remote,
+                Some(ed),
+                Some(json!({ "title": "Block curl", "ops": [put] })),
+            ),
+        )
+        .await;
+        assert_eq!(s, StatusCode::OK, "{change}");
+        let id = change["id"].as_str().unwrap().to_string();
+        let approve = Box::leak(format!("/v1/policies/changes/{id}/approve").into_boxed_str());
+        assert_eq!(send(&r, request("POST", approve, remote, Some(ed), None)).await.0, StatusCode::FORBIDDEN);
+
+        // Before approval the rule is not enforced.
+        let curl = || {
+            nandi_core::Event::new(
+                nandi_core::Source::Eval,
+                "bot",
+                "s",
+                nandi_core::EventKind::ToolCall(nandi_core::ToolCall {
+                    server: "sh".into(),
+                    tool: "curl".into(),
+                    call_id: None,
+                    args: json!({}),
+                }),
+            )
+        };
+        assert_eq!(app.engine.evaluate(&curl(), &[]).verdict, Verdict::Allow);
+        let (s, applied) =
+            send(&r, request("POST", approve, remote, Some(pat), Some(json!({ "comment": "ok" })))).await;
+        assert_eq!(s, StatusCode::OK, "{applied}");
+        assert_eq!(applied["status"], "applied");
+        assert_eq!(app.engine.evaluate(&curl(), &[]).verdict, Verdict::Deny);
+
+        // The policy listing shows the document at version 1, and history.
+        let (_, ov) = send(&r, request("GET", "/v1/policies", remote, Some(ed), None)).await;
+        assert_eq!(ov["documents"][0]["version"], 1);
+        assert_eq!(ov["editable"], true);
+        assert!(ov["packs"].as_array().unwrap().len() >= 5);
+
+        // A self-approval by the approver of their own change is refused while
+        // the admin token exists.
+        let (_, own) = send(
+            &r,
+            request(
+                "POST",
+                "/v1/policies/changes",
+                remote,
+                Some(pat),
+                Some(json!({ "title": "Turn it off", "ops": [{ "op": "disable", "name": "no-curl" }] })),
+            ),
+        )
+        .await;
+        let own_approve =
+            Box::leak(format!("/v1/policies/changes/{}/approve", own["id"].as_str().unwrap()).into_boxed_str());
+        let (s, v) = send(&r, request("POST", own_approve, remote, Some(pat), None)).await;
+        assert_eq!(s, StatusCode::CONFLICT, "{v}");
+
+        // All of it is in the audit trail.
+        app.recorder.flush().await;
+        let (_, trail) = send(&r, request("GET", "/v1/audit/admin?action=policy.", remote, Some(ed), None)).await;
+        let actions: Vec<&str> = trail.as_array().unwrap().iter().filter_map(|r| r["action"].as_str()).collect();
+        assert!(
+            actions.contains(&"policy.change.propose") && actions.contains(&"policy.change.approve"),
+            "{actions:?}"
+        );
     }
 
     #[tokio::test]

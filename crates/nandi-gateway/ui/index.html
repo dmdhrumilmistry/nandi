@@ -227,6 +227,50 @@ td .btn + .btn { margin-left: 4px; }
 .roledoc td { white-space: normal; }
 .c-role { width: 160px; }
 
+/* policies */
+.tabcount { display: inline-block; min-width: 16px; margin-left: 6px; padding: 0 5px; border-radius: 8px; background: var(--ask-bg); color: var(--ask-fg); font-size: 11px; font-weight: 650; }
+.pol-grid { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 16px; align-items: start; }
+.pol-grid .wide { grid-column: 1 / -1; }
+.navsec { padding: 10px 14px 4px; color: var(--muted); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+.navlist { display: grid; padding: 0 6px 8px; }
+.navitem { display: grid; gap: 2px; padding: 7px 8px; border: 0; border-radius: 7px; background: none; text-align: left; font: inherit; color: var(--ink); cursor: pointer; }
+.navitem:hover, .navitem[aria-current="true"] { background: var(--surface-2); }
+.navitem .meta { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.navitem .off { color: var(--deny-fg); }
+.editor { display: grid; gap: 10px; padding: 12px 14px 14px; }
+.editor .line { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.editor textarea { width: 100%; min-height: 340px; padding: 10px 12px; border: 1px solid var(--line-2); border-radius: 8px; background: var(--surface);
+  color: var(--ink); font: 12.5px/1.55 var(--mono); tab-size: 2; resize: vertical; }
+.editor textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.editor textarea[readonly] { background: var(--surface-2); }
+.note { padding: 10px 12px; border-radius: 8px; background: var(--surface-2); color: var(--ink-2); font-size: 12.5px; }
+.note.warn { background: var(--ask-bg); color: var(--ask-fg); }
+.note.bad { background: var(--deny-bg); color: var(--deny-fg); }
+.note.good { background: var(--allow-bg); color: var(--allow-fg); }
+.note ul { margin: 6px 0 0; padding-left: 18px; }
+.impact-sum { font-size: 13px; }
+.impact-sum b { font-variant-numeric: tabular-nums; }
+.verd { font-weight: 600; text-transform: capitalize; }
+.verd.deny, .verd.ask { color: var(--deny-fg); } .verd.alert, .verd.redact { color: var(--ask-fg); } .verd.allow { color: var(--allow-fg); }
+.propose { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--line-2); border-radius: 8px; }
+.propose textarea { min-height: 60px; font-family: var(--sans); }
+.status { display: inline-block; padding: 1px 7px; border-radius: 6px; font-size: 12px; font-weight: 600; text-transform: capitalize; }
+.status.pending { background: var(--ask-bg); color: var(--ask-fg); }
+.status.applied { background: var(--allow-bg); color: var(--allow-fg); }
+.status.rejected, .status.conflict { background: var(--deny-bg); color: var(--deny-fg); }
+.status.withdrawn { background: var(--surface-2); color: var(--muted); }
+.diff { margin: 6px 0 10px; border: 1px solid var(--line); border-radius: 8px; overflow: auto; max-height: 360px; font: 12px/1.5 var(--mono); }
+.diff div { padding: 0 10px; white-space: pre; }
+.diff .add { background: var(--allow-bg); color: var(--allow-fg); }
+.diff .del { background: var(--deny-bg); color: var(--deny-fg); }
+.diff .ctx { color: var(--ink-2); }
+.diff .gap { color: var(--muted); background: var(--surface-2); }
+.c-status { width: 100px; } .c-author { width: 120px; } .c-when { width: 110px; } .c-impact { width: 280px; }
+.review-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 10px; }
+.review-actions input { flex: 1; min-width: 200px; }
+body:not(.can-propose) .needs-propose, body:not(.can-approve) .needs-approve { display: none !important; }
+@media (max-width: 980px) { .pol-grid { grid-template-columns: minmax(0, 1fr); } }
+
 .map-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); gap: 16px; }
 .map-grid .wide { grid-column: 1 / -1; }
 .chart { position: relative; padding: 10px 14px 14px; }
@@ -351,6 +395,7 @@ table.tv td.n, table.tv th.n { text-align: right; font-variant-numeric: tabular-
   <div class="tabs" role="tablist" aria-label="Views">
     <button type="button" role="tab" id="tab-overview" aria-controls="view-overview" aria-selected="true">Overview</button>
     <button type="button" role="tab" id="tab-map" aria-controls="view-map" aria-selected="false">Map</button>
+    <button type="button" role="tab" id="tab-policies" aria-controls="view-policies" aria-selected="false">Policies<span class="tabcount" id="pol-pending" hidden></span></button>
     <button type="button" role="tab" id="tab-audit" aria-controls="view-audit" aria-selected="false">Audit</button>
     <button type="button" role="tab" id="tab-users" aria-controls="view-users" aria-selected="false" hidden>Users</button>
   </div>
@@ -472,6 +517,31 @@ table.tv td.n, table.tv th.n { text-align: right; font-variant-numeric: tabular-
       <header><h2 id="h-time">Decisions over time</h2><p id="time-sub"></p></header>
       <div class="legend" id="time-legend"></div>
       <div class="chart" id="timeline"></div>
+    </section>
+  </div>
+</div>
+<div id="view-policies" role="tabpanel" aria-labelledby="tab-policies" hidden>
+  <div id="pol-locked"></div>
+  <div class="pol-grid">
+    <section class="card" aria-labelledby="h-polnav">
+      <header><h2 id="h-polnav">Policies</h2><span class="spacer"></span>
+        <button class="btn small needs-propose" type="button" id="pol-new">New policy</button></header>
+      <div class="navsec">Written here</div><div class="navlist" id="pol-docs"></div>
+      <div class="navsec">Policy files</div><div class="navlist" id="pol-files"></div>
+      <div class="navsec needs-propose">Start from a pack</div><div class="navlist needs-propose" id="pol-packs"></div>
+    </section>
+    <section class="card" aria-labelledby="h-poled">
+      <header><h2 id="h-poled">Editor</h2><p id="pol-ed-sub"></p></header>
+      <div class="editor" id="pol-editor"></div>
+    </section>
+    <section class="card wide" aria-labelledby="h-changes">
+      <header><h2 id="h-changes">Change requests</h2><p>Every policy change is proposed, checked against recent traffic, and approved before it applies</p>
+        <span class="spacer"></span>
+        <div class="seg" id="chg-filter" role="group" aria-label="Show">
+          <button type="button" data-f="pending" aria-pressed="true">Open</button>
+          <button type="button" data-f="all">All</button>
+        </div></header>
+      <div id="changes"></div>
     </section>
   </div>
 </div>
@@ -1507,8 +1577,256 @@ function renderMap() {
   else { mandala(g); flow(g); }
   timeline(g);
 }
+
+// ---------- policies ----------
+let polData = null, polSel = null, chgFilter = "pending";
+const KIND_LABEL = { rules: "YAML rules", cedar: "Cedar" };
+const VERDICT_TEXT = { allow: "allow", alert: "alert", redact: "redact", ask: "held", deny: "deny" };
+
+async function loadPolicies() {
+  try { polData = await api("/v1/policies"); } catch (_) { return; }
+  const pending = polData.pending || 0;
+  $("pol-pending").hidden = !pending; $("pol-pending").textContent = String(pending);
+  $("pol-locked").replaceChildren(polData.editable ? "" : el("div", { class: "note warn" },
+    "Policies are managed by your organization on this machine (managed settings), so they cannot be changed here. ",
+    "IT can allow it with ", el("code", {}, "policy.changes.enabled: true"), "."));
+  document.body.classList.toggle("pol-locked", !polData.editable);
+  const docs = polData.documents.map((d) => navItem(d.name,
+    [KIND_LABEL[d.kind], "v" + d.version, d.enabled ? null : el("span", { class: "off" }, "disabled")],
+    () => openDoc(d), "doc:" + d.name));
+  $("pol-docs").replaceChildren(...(docs.length ? docs : [el("div", { class: "empty" }, "None yet.")]));
+  const files = polData.files.map((f) => navItem(f.path.split(/[\\/]/).pop(), [KIND_LABEL[f.kind], f.path], () => openFile(f), "file:" + f.path));
+  $("pol-files").replaceChildren(...(files.length ? files : [el("div", { class: "empty" }, "No files in policy.rules or policy.cedar.")]));
+  $("pol-packs").replaceChildren(...polData.packs.map((p) => navItem(p.name, [p.summary], () => openPack(p.name), "pack:" + p.name)));
+  if (!polSel) openNew(); else markSel();
+  loadChanges();
+}
+
+function navItem(title, meta, onclick, key) {
+  const b = el("button", { class: "navitem", type: "button", "data-key": key },
+    el("span", {}, title), el("span", { class: "meta" }, ...meta.filter((x) => x !== null).flatMap((m, i) => i ? ["  ·  ", m] : [m])));
+  b.addEventListener("click", onclick);
+  return b;
+}
+function markSel() {
+  for (const b of document.querySelectorAll("#view-policies .navitem")) b.setAttribute("aria-current", String(b.dataset.key === (polSel && polSel.key)));
+}
+
+// The editor: a document being written (new, existing, from a pack or an
+// old version) or a read-only file.
+function editorFor(opts) {
+  polSel = opts; markSel();
+  const ro = opts.readonly || !polData.editable;
+  const name = el("input", { class: "field", id: "pe-name", placeholder: "name, e.g. payments-guard", value: opts.name || "", autocomplete: "off" });
+  if (opts.existing || opts.readonly) name.setAttribute("readonly", "");
+  const kind = el("select", { class: "field", id: "pe-kind" },
+    ...["rules", "cedar"].map((k) => el("option", Object.assign({ value: k }, opts.kind === k ? { selected: "" } : {}), KIND_LABEL[k])));
+  if (opts.existing || opts.readonly) kind.setAttribute("disabled", "");
+  const text = el("textarea", { id: "pe-text", spellcheck: "false", "aria-label": "Policy text" });
+  text.value = opts.content || "";
+  if (ro) text.setAttribute("readonly", "");
+  text.addEventListener("keydown", (e) => {
+    if (e.key === "Tab" && !e.shiftKey && !text.readOnly) {
+      e.preventDefault();
+      const a = text.selectionStart; text.setRangeText("  ", a, text.selectionEnd, "end");
+    }
+  });
+  const out = el("div", { id: "pe-out" });
+  const ops = () => [{ op: "put", name: name.value.trim(), kind: kind.value, content: text.value }];
+  const btn = (label, cls, fn) => { const b = el("button", { class: "btn " + cls, type: "button" }, label); b.addEventListener("click", fn); return b; };
+  const actions = el("div", { class: "line" });
+  if (!opts.readonly) {
+    actions.append(
+      btn("Check", "", async () => showValidation(out, await api("/v1/policies/validate", { method: "POST", body: { ops: ops() } }))),
+      btn("Preview impact", "", async () => {
+        out.replaceChildren(el("div", { class: "note" }, "Replaying recent traffic..."));
+        const r = await api("/v1/policies/preview", { method: "POST", body: { ops: ops() } });
+        out.replaceChildren(); showValidation(out, r.validation); if (r.impact) out.append(impactView(r.impact));
+      }));
+    if (polData.editable) {
+      actions.append(btn("Propose change", "primary needs-propose", () => proposeForm(out, opts.title || (opts.existing ? "Update " + opts.name : "Add " + (name.value.trim() || "a policy")), ops)));
+      if (opts.existing) {
+        actions.append(el("span", { class: "spacer" }),
+          btn(opts.enabled ? "Disable" : "Enable", "needs-propose", () => proposeForm(out, (opts.enabled ? "Disable " : "Enable ") + opts.name,
+            () => [{ op: opts.enabled ? "disable" : "enable", name: opts.name }])),
+          btn("Delete", "danger needs-propose", () => proposeForm(out, "Delete " + opts.name, () => [{ op: "delete", name: opts.name }])),
+          btn("History", "", () => showHistory(out, opts.name)));
+      }
+    }
+  }
+  $("pol-ed-sub").textContent = opts.sub || "";
+  $("pol-editor").replaceChildren(...[
+    el("div", { class: "line" }, name, kind),
+    opts.readonly ? el("div", { class: "note" }, "This file is read-only here. Change it on disk and reload policy (", el("code", {}, "POST /v1/policy/reload"), "), or copy rules into a policy written here.") : null,
+    opts.banner ? el("div", { class: "note warn" }, opts.banner) : null,
+    text, actions, out].filter(Boolean));
+}
+function openNew() {
+  editorFor({ key: "new", name: "", kind: "rules", sub: "A new policy", title: "",
+    content: "# Rules are evaluated on every action, next to the policy files.\n# See docs/policy/rules.md and docs/policy/capabilities.md.\nrules:\n  - id: example-ask-before-payments\n    match:\n      capability: payment\n    action: ask\n    severity: high\n" });
+}
+function openDoc(d) {
+  editorFor({ key: "doc:" + d.name, existing: true, name: d.name, kind: d.kind, content: d.content, enabled: d.enabled,
+    sub: "Version " + d.version + ", changed " + ago(d.updated_ms) + " by " + d.updated_by + (d.enabled ? "" : ". Disabled.") });
+}
+function openFile(f) { editorFor({ key: "file:" + f.path, readonly: true, name: f.path, kind: f.kind, content: f.content, sub: "From the configuration" }); }
+async function openPack(name) {
+  const p = await api("/v1/policies/packs/" + encodeURIComponent(name));
+  const exists = polData.documents.find((d) => d.name === name);
+  editorFor({ key: "pack:" + name, existing: !!exists, enabled: exists ? exists.enabled : true, name, kind: "rules", content: p.content,
+    title: (exists ? "Update " : "Add the ") + name + " pack", sub: p.summary,
+    banner: "Read the pack and adjust its patterns to your environment before proposing it." });
+}
+
+function showValidation(out, v) {
+  if (v.ok) {
+    out.replaceChildren(el("div", { class: "note good" }, "Compiles together with the policy files.",
+      v.warnings.length ? el("ul", {}, ...v.warnings.map((w) => el("li", {}, w))) : null));
+  } else {
+    out.replaceChildren(el("div", { class: "note bad" }, "Does not compile:", el("ul", {}, ...v.errors.map((e) => el("li", {}, e)))));
+  }
+}
+
+function impactView(i) {
+  const head = i.changed
+    ? ["Of the last ", el("b", {}, i.events.toLocaleString()), " recorded events, ", el("b", {}, String(i.changed)),
+       " would get a different decision: ", el("b", {}, String(i.stricter)), " stricter, ", el("b", {}, String(i.looser)), " looser."]
+    : ["None of the last ", el("b", {}, i.events.toLocaleString()), " recorded events would get a different decision."];
+  const box = el("div", {}, el("p", { class: "impact-sum" }, ...head));
+  if (i.examples.length) {
+    box.append(el("table", {},
+      el("colgroup", {}, el("col", { class: "c-when" }), el("col", { class: "c-author" }), el("col", {}), el("col", { class: "c-impact" })),
+      el("thead", {}, el("tr", {}, ...["When", "Agent", "Target", "Decision"].map((h) => el("th", { scope: "col" }, h)))),
+      el("tbody", {}, ...i.examples.map((r) => el("tr", { title: "before: " + (r.rules_before.join(", ") || "no findings") + "\nafter: " + (r.rules_after.join(", ") || "no findings") },
+        el("td", {}, ago(r.ts_ms)), el("td", {}, r.agent), el("td", { class: "mono" }, r.target),
+        el("td", {}, el("span", { class: "verd " + r.before }, VERDICT_TEXT[r.before]), "  →  ", el("span", { class: "verd " + r.after }, VERDICT_TEXT[r.after])))))));
+  }
+  return box;
+}
+
+function proposeForm(out, title, opsFn) {
+  const t = el("input", { class: "field", value: title, "aria-label": "Title" });
+  const d = el("textarea", { class: "field", placeholder: "Why? Reviewers see this.", "aria-label": "Description" });
+  const send = el("button", { class: "btn primary", type: "submit" }, "Propose");
+  const form = el("form", { class: "propose" }, el("strong", {}, "Propose this change"), t, d,
+    el("div", { class: "line" }, send, el("span", { class: "muted" }, "It is checked and previewed now, and applies once approved.")));
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault(); send.disabled = true;
+    try {
+      const c = await api("/v1/policies/changes", { method: "POST", body: { title: t.value, description: d.value, ops: opsFn() } });
+      out.replaceChildren(el("div", { class: "note good" }, "Proposed. It is listed under change requests below."));
+      chgFilter = "pending"; await loadPolicies(); openChange(c.id);
+    } catch (_) { send.disabled = false; }
+  });
+  out.replaceChildren(form); t.focus();
+}
+
+async function showHistory(out, name) {
+  const list = await api("/v1/policies/docs/" + encodeURIComponent(name) + "/versions");
+  out.replaceChildren(el("div", { class: "note" }, el("strong", {}, "History of " + name),
+    el("ul", {}, ...list.map((v) => {
+      const restore = el("button", { class: "btn small link needs-propose", type: "button" }, "Restore");
+      restore.addEventListener("click", () => editorFor({ key: "doc:" + name, existing: true, enabled: true, name, kind: v.kind, content: v.content,
+        title: "Roll " + name + " back to version " + v.version, sub: "Restoring version " + v.version,
+        banner: "This is version " + v.version + ". Proposing it rolls the policy back, through the usual review." }));
+      return el("li", {}, "Version " + v.version + ", " + ago(v.updated_ms) + " by " + v.updated_by + (v.enabled ? "" : " (disabled)") + "  ", restore);
+    }))));
+}
+
+// Line diff (longest common subsequence), with 3 lines of context.
+function lineDiff(a, b) {
+  const x = a ? a.split("\n") : [], y = b ? b.split("\n") : [];
+  const n = x.length, m = y.length;
+  const L = Array.from({ length: n + 1 }, () => new Uint16Array(m + 1));
+  for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) L[i][j] = x[i] === y[j] ? L[i + 1][j + 1] + 1 : Math.max(L[i + 1][j], L[i][j + 1]);
+  const rows = [];
+  let i = 0, j = 0;
+  while (i < n || j < m) {
+    if (i < n && j < m && x[i] === y[j]) { rows.push(["ctx", x[i]]); i++; j++; }
+    else if (j < m && (i === n || L[i][j + 1] >= L[i + 1][j])) { rows.push(["add", y[j]]); j++; }
+    else { rows.push(["del", x[i]]); i++; }
+  }
+  const keep = rows.map((r, k) => r[0] !== "ctx" || rows.slice(Math.max(0, k - 3), k + 4).some((q) => q[0] !== "ctx"));
+  const box = el("div", { class: "diff", role: "table", "aria-label": "Changes" });
+  let skipped = false;
+  rows.forEach((r, k) => {
+    if (!keep[k]) { if (!skipped) box.append(el("div", { class: "gap" }, "  ...")); skipped = true; return; }
+    skipped = false;
+    box.append(el("div", { class: r[0] }, (r[0] === "add" ? "+ " : r[0] === "del" ? "- " : "  ") + r[1]));
+  });
+  return box;
+}
+
+let openChangeId = null;
+async function loadChanges() {
+  let list;
+  try { list = await api("/v1/policies/changes"); } catch (_) { return; }
+  const shown = chgFilter === "pending" ? list.filter((c) => c.status === "pending") : list;
+  if (!shown.length) {
+    $("changes").replaceChildren(el("div", { class: "empty" }, chgFilter === "pending" ? "No open change requests." : "No change requests yet."));
+    return;
+  }
+  const body = el("tbody", {});
+  for (const c of shown) {
+    const imp = c.impact ? (c.impact.changed ? c.impact.changed + " decisions change (" + c.impact.stricter + " stricter)" : "no decision changes") : "not previewed";
+    const tr = el("tr", { class: "row", tabindex: "0", "aria-expanded": "false", "data-id": c.id },
+      el("td", {}, c.title), el("td", {}, c.author), el("td", { title: new Date(c.created_ms).toLocaleString() }, ago(c.created_ms)),
+      el("td", {}, el("span", { class: "status " + c.status }, c.status)), el("td", {}, imp));
+    const toggle = () => {
+      const next = tr.nextElementSibling;
+      if (next && next.classList.contains("detail")) { next.remove(); tr.setAttribute("aria-expanded", "false"); openChangeId = null; return; }
+      tr.after(changeDetail(c)); tr.setAttribute("aria-expanded", "true"); openChangeId = c.id;
+    };
+    tr.addEventListener("click", toggle);
+    tr.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); } });
+    body.append(tr);
+  }
+  $("changes").replaceChildren(el("table", {},
+    el("colgroup", {}, el("col", {}), el("col", { class: "c-author" }), el("col", { class: "c-when" }), el("col", { class: "c-status" }), el("col", { class: "c-impact" })),
+    el("thead", {}, el("tr", {}, ...["Change", "Author", "Proposed", "Status", "Impact"].map((h) => el("th", { scope: "col" }, h)))), body));
+  if (openChangeId) { const row = $("changes").querySelector('tr[data-id="' + openChangeId + '"]'); if (row) row.click(); }
+}
+function openChange(id) { openChangeId = id; loadChanges(); }
+
+function changeDetail(c) {
+  const td = el("td", { colspan: "5" });
+  if (c.description) td.append(el("p", {}, c.description));
+  for (const op of c.ops) {
+    const label = { put: (c.before[op.name] ? "Change " : "Add ") + op.name, delete: "Delete " + op.name, enable: "Enable " + op.name, disable: "Disable " + op.name }[op.op];
+    td.append(el("div", {}, el("strong", {}, label), op.kind ? el("span", { class: "muted" }, "  " + KIND_LABEL[op.kind]) : null));
+    if (op.op === "put") td.append(lineDiff(c.before[op.name] || "", op.content));
+  }
+  if (c.validation.warnings.length) td.append(el("div", { class: "note" }, "Warnings:", el("ul", {}, ...c.validation.warnings.map((w) => el("li", {}, w)))));
+  if (c.impact) td.append(impactView(c.impact));
+  for (const r of c.reviews) td.append(el("p", { class: "muted" }, (r.approved ? "Approved" : "Rejected") + " by " + r.by + " " + ago(r.ms) + (r.comment ? ": " + r.comment : "")));
+  if (c.note) td.append(el("p", { class: "muted" }, c.note));
+  if (c.status === "pending") {
+    const comment = el("input", { class: "field", placeholder: "Comment (optional)", "aria-label": "Review comment" });
+    const act = async (verb) => {
+      try { await api("/v1/policies/changes/" + encodeURIComponent(c.id) + "/" + verb, { method: "POST", body: verb === "withdraw" ? undefined : { comment: comment.value } }); }
+      catch (_) { return; }
+      loadPolicies();
+    };
+    const mk = (label, cls, verb) => { const b = el("button", { class: "btn " + cls, type: "button" }, label); b.addEventListener("click", (e) => { e.stopPropagation(); act(verb); }); return b; };
+    const row = el("div", { class: "review-actions" });
+    row.append(comment, mk("Approve and apply", "primary needs-approve", "approve"), mk("Reject", "danger needs-approve", "reject"));
+    if (me && me.name === c.author) row.append(mk("Withdraw", "", "withdraw"));
+    if (polData && polData.require_review && me && me.name === c.author) row.append(el("span", { class: "muted" }, "Someone else approves this, when anyone else can."));
+    td.append(row);
+  }
+  return el("tr", { class: "detail" }, td);
+}
+
+$("pol-new").addEventListener("click", openNew);
+$("chg-filter").addEventListener("click", (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  for (const x of $("chg-filter").querySelectorAll("button")) x.setAttribute("aria-pressed", String(x === b));
+  chgFilter = b.dataset.f; loadChanges();
+});
+
 // ---------- views ----------
-const VIEWS = ["overview", "map", "audit", "users"];
+const VIEWS = ["overview", "map", "policies", "audit", "users"];
+let polTimer = null;
 let auditTimer = null;
 function showView(name) {
   if (!VIEWS.includes(name) || $("tab-" + name).hidden) name = "overview";
@@ -1518,10 +1836,11 @@ function showView(name) {
   }
   $("filters").hidden = name !== "overview";
   if (history.replaceState) history.replaceState(null, "", name === "overview" ? "#" : "#" + name);
-  clearInterval(mapTimer); clearInterval(auditTimer);
+  clearInterval(mapTimer); clearInterval(auditTimer); clearInterval(polTimer);
   if (name === "map") { loadGraph(); mapTimer = setInterval(loadGraph, 15000); }
   if (name === "audit") { loadTrail(); auditTimer = setInterval(loadTrail, 15000); }
   if (name === "users") loadUsers();
+  if (name === "policies") { loadPolicies(); polTimer = setInterval(loadChanges, 15000); }
 }
 for (const v of VIEWS) $("tab-" + v).addEventListener("click", () => showView(v));
 
@@ -1542,6 +1861,8 @@ async function loadMe() {
   try { me = await api("/v1/me"); } catch (_) { me = null; }
   const perms = new Set(me ? me.permissions : []);
   document.body.classList.toggle("can-operate", perms.has("operate"));
+  document.body.classList.toggle("can-propose", perms.has("policy_propose"));
+  document.body.classList.toggle("can-approve", perms.has("policy_approve"));
   $("tab-users").hidden = !perms.has("manage_users");
   $("token-btn").textContent = me ? me.name : "Sign in";
   $("token-btn").classList.toggle("whoami", !!me);

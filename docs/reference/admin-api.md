@@ -30,6 +30,12 @@ page); without a token they only answer loopback clients.
 | GET, DELETE | `/v1/behavior/{agent}` | behaviour model, reset |
 | GET | `/v1/usage` | token and tool-call usage today |
 | POST | `/v1/policy/reload` | reload policy files |
+| GET | `/v1/policies` | policy files (read-only), documents written in the dashboard, packs, whether changes are allowed |
+| GET | `/v1/policies/packs/{name}`, `/v1/policies/docs/{name}/versions` | a pack's text; a document's versions, newest first |
+| POST | `/v1/policies/validate`, `/v1/policies/preview` | check `{"ops": [...]}`; check and replay recent events to show which decisions would change |
+| GET, POST | `/v1/policies/changes` | change requests; propose one with `{"title", "description", "ops"}` |
+| GET | `/v1/policies/changes/{id}` | one change request |
+| POST | `/v1/policies/changes/{id}/approve`, `/reject`, `/withdraw` | review with `{"comment"}`; approving applies it |
 | GET | `/v1/audit/verify` | verify the audit chain |
 | POST | `/v1/hook/{format}` | evaluate a hook payload |
 | POST | `/v1/inventory` | store a host's AI footprint (`nandi discover --report`), JSON body up to 2 MiB; also accepts `admin.report_token` |
@@ -42,7 +48,7 @@ page); without a token they only answer loopback clients.
 Each route needs a permission, granted by the caller's roles (see
 [Users and audit trail](../operations/users.md)): reading needs `read`;
 approvals, the kill switch, pins, server binaries, behaviour resets and
-token revocation need `operate`; policy reloads `policy_approve`; users
+token revocation need `operate`; proposing, checking and previewing policy changes `policy_propose`; approving or rejecting them and reloading policy `policy_approve`; users
 `manage_users`; `/v1/hook/*` needs `hook` and `POST /v1/inventory` needs
 `report`. `/v1/me` works for everyone signed in. A route not listed here
 needs `admin`.
