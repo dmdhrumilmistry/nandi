@@ -32,6 +32,7 @@ jobs:
             chmod +x "$name"/nandi* # artifacts do not keep the executable bit
             cp LICENSE README.md "$name"/
             cp -r examples "$name"/
+            if [ -d deploy ]; then cp -r deploy "$name"/; fi # MDM kits and service files
             case "$target" in
               *windows*) zip -qr "dist/$name.zip" "$name"; out="$name.zip" ;;
               *) tar czf "dist/$name.tar.gz" "$name"; out="$name.tar.gz" ;;
