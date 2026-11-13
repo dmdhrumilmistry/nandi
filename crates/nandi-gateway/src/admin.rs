@@ -173,6 +173,8 @@ fn build(app: Arc<App>, shutdown: watch::Receiver<bool>) -> Router {
             "/v1/inventory",
             get(inventory_list).post(inventory_report).layer(DefaultBodyLimit::max(MAX_INVENTORY_BYTES)),
         )
+        .route("/v1/tokens/revoked", get(tokens_revoked))
+        .route("/v1/tokens/revoke", post(token_revoke))
         .layer(middleware::from_fn_with_state(state.clone(), guard))
         .with_state(state)
 }
@@ -514,6 +516,21 @@ async fn kill(State(st): State<AdminState>, Path(agent): Path<String>) -> ApiRes
     st.app.engine.kill(&agent);
     tracing::warn!(agent = %agent, "agent killed via admin API");
     ok_json(json!({ "ok": true, "agent": agent, "killed": true }))
+}
+
+async fn tokens_revoked(State(st): State<AdminState>) -> ApiResult {
+    ok_json(json!({ "revoked": st.app.auth.revoked() }))
+}
+
+async fn token_revoke(State(st): State<AdminState>, body: axum::body::Bytes) -> ApiResult {
+    let v: Value = serde_json::from_slice(&body).map_err(|e| ApiError::bad_request(format!("invalid JSON: {e}")))?;
+    let id = v.get("id").and_then(Value::as_str).map(str::trim).unwrap_or("");
+    if id.len() < 32 || !id.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err(ApiError::bad_request("id must be a hex revocation identifier (see `nandi token inspect`)"));
+    }
+    let added = st.app.revoke_token(id);
+    tracing::warn!(id = %id, added, "biscuit token revoked via admin API");
+    ok_json(json!({ "ok": true, "id": id.to_ascii_lowercase(), "newly_revoked": added }))
 }
 
 async fn revive(State(st): State<AdminState>, Path(agent): Path<String>) -> ApiResult {

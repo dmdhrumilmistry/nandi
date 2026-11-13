@@ -125,6 +125,48 @@ Options:
   -h, --help                   Print help
 ```
 
+### nandi policy packs
+
+```text
+List the bundled policy packs
+
+Usage: nandi policy packs [OPTIONS]
+
+Options:
+  -c, --config <CONFIG>        Configuration file [env: NANDI_CONFIG=] [default: nandi.yaml]
+      --log-level <LOG_LEVEL>  Log filter (error, warn, info, debug, trace or a tracing directive) [env: NANDI_LOG=] [default: info]
+  -h, --help                   Print help
+```
+
+```text
+$ nandi policy packs
+coding-agent         coding agent baseline
+payments             payments need a person
+protect-production   protect production
+sensitive-saas       keep agents away from sensitive SaaS
+tainted-outbound     no unreviewed outbound messages after untrusted input
+
+Save one with `nandi policy pack <name> > policies/<name>.yaml` and add it to policy.rules.
+```
+
+See [policy packs](../policy/packs.md).
+
+### nandi policy pack
+
+```text
+Print a bundled policy pack, to save as a rule file: `nandi policy pack payments > policies/payments.yaml`
+
+Usage: nandi policy pack [OPTIONS] <NAME>
+
+Arguments:
+  <NAME>  Pack name from `nandi policy packs`
+
+Options:
+  -c, --config <CONFIG>        Configuration file [env: NANDI_CONFIG=] [default: nandi.yaml]
+      --log-level <LOG_LEVEL>  Log filter (error, warn, info, debug, trace or a tracing directive) [env: NANDI_LOG=] [default: info]
+  -h, --help                   Print help
+```
+
 ### nandi replay
 
 ```text
@@ -298,7 +340,7 @@ Options:
 ### nandi token inspect
 
 ```text
-Print a token's blocks (signatures are not checked)
+Print a token's blocks and their revocation ids (signatures are not checked)
 
 Usage: nandi token inspect [OPTIONS] --token <TOKEN>
 
@@ -306,6 +348,41 @@ Options:
   -c, --config <CONFIG>        Configuration file [env: NANDI_CONFIG=] [default: nandi.yaml]
       --token <TOKEN>          
       --log-level <LOG_LEVEL>  Log filter (error, warn, info, debug, trace or a tracing directive) [env: NANDI_LOG=] [default: info]
+  -h, --help                   Print help
+```
+
+### nandi token revoke
+
+```text
+Revoke a token block by its revocation id (admin API). Revoking a block cancels that token and every token attenuated from it
+
+Usage: nandi token revoke [OPTIONS] <ID>
+
+Arguments:
+  <ID>  Revocation id from `nandi token inspect`
+
+Options:
+      --admin <URL>            Admin API base URL (default: `admin.listen` from the config, else http://127.0.0.1:8788)
+  -c, --config <CONFIG>        Configuration file [env: NANDI_CONFIG=] [default: nandi.yaml]
+      --log-level <LOG_LEVEL>  Log filter (error, warn, info, debug, trace or a tracing directive) [env: NANDI_LOG=] [default: info]
+      --token <TOKEN>          Admin bearer token (default: `admin.token` from the config) [env: NANDI_ADMIN_TOKEN]
+      --json                   Print raw JSON instead of a summary
+  -h, --help                   Print help
+```
+
+### nandi token revoked
+
+```text
+List revoked token blocks (admin API)
+
+Usage: nandi token revoked [OPTIONS]
+
+Options:
+      --admin <URL>            Admin API base URL (default: `admin.listen` from the config, else http://127.0.0.1:8788)
+  -c, --config <CONFIG>        Configuration file [env: NANDI_CONFIG=] [default: nandi.yaml]
+      --log-level <LOG_LEVEL>  Log filter (error, warn, info, debug, trace or a tracing directive) [env: NANDI_LOG=] [default: info]
+      --token <TOKEN>          Admin bearer token (default: `admin.token` from the config) [env: NANDI_ADMIN_TOKEN]
+      --json                   Print raw JSON instead of a summary
   -h, --help                   Print help
 ```
 
@@ -434,9 +511,9 @@ MCP servers with their package, approval, pinning and risk (admin API)
 Usage: nandi servers [OPTIONS]
 
 Options:
+      --admin <URL>            Admin API base URL (default: `admin.listen` from the config, else http://127.0.0.1:8788)
   -c, --config <CONFIG>        Configuration file [env: NANDI_CONFIG=] [default: nandi.yaml]
       --log-level <LOG_LEVEL>  Log filter (error, warn, info, debug, trace or a tracing directive) [env: NANDI_LOG=] [default: info]
-      --admin <URL>            Admin API base URL (default: `admin.listen` from the config, else http://127.0.0.1:8788)
       --token <TOKEN>          Admin bearer token (default: `admin.token` from the config) [env: NANDI_ADMIN_TOKEN]
       --json                   Print raw JSON instead of a summary
   -h, --help                   Print help

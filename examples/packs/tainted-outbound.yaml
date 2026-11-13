@@ -1,0 +1,23 @@
+# Pack: no unreviewed outbound messages after untrusted input
+#
+# Once a session has read content it does not control (web pages, inboxes,
+# tool output), anything that sends data out (email, chat, posts, webhooks,
+# uploads) needs a person. Pairs well with the taint flow checks, which
+# already hold messages that copy values from untrusted content.
+
+rules:
+  - id: tainted-external-send
+    description: Outbound message from a session that read untrusted content
+    match:
+      capability: external_send
+      session: { tainted: true }
+    action: ask
+    severity: high
+
+  - id: tainted-identity-change
+    description: User, role or permission changes after untrusted input
+    match:
+      capability: identity_admin
+      session: { tainted: true }
+    action: deny
+    severity: critical

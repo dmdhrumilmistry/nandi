@@ -52,6 +52,10 @@ pub struct BiscuitGrant {
     pub chain_len: usize,
     /// The token itself, so later tool calls can be authorized against it.
     pub token: String,
+    /// Hex revocation identifiers of every block, authority first. Revoking
+    /// a block's identifier invalidates that token and everything
+    /// attenuated from it.
+    pub revocation_ids: Vec<String>,
 }
 
 impl std::fmt::Debug for BiscuitGrant {
@@ -59,6 +63,7 @@ impl std::fmt::Debug for BiscuitGrant {
         f.debug_struct("BiscuitGrant")
             .field("agent", &self.agent)
             .field("chain_len", &self.chain_len)
+            .field("revocation_ids", &self.revocation_ids)
             .finish_non_exhaustive()
     }
 }
@@ -237,7 +242,12 @@ fn run(token: &Biscuit, code: &str, params: HashMap<String, Term>, now: SystemTi
     let mut agents: Vec<(String,)> = authorizer.query("agent_name($a) <- agent($a)").map_err(err)?;
     agents.sort();
     let agent = agents.into_iter().next().map(|(a,)| a).ok_or_else(|| err("token names no agent"))?;
-    Ok(BiscuitGrant { agent, chain_len: token.block_count(), token: token.to_base64().map_err(err)? })
+    Ok(BiscuitGrant {
+        agent,
+        chain_len: token.block_count(),
+        token: token.to_base64().map_err(err)?,
+        revocation_ids: token.revocation_identifiers().iter().map(hex::encode).collect(),
+    })
 }
 
 /// Verify signatures and expiry, without a tool. Used to authenticate a
@@ -276,14 +286,26 @@ pub(crate) fn authorize_at(
     Ok(BiscuitGrant { token: token_b64.trim().to_string(), ..grant })
 }
 
-/// Datalog source of every block, for `nandi biscuit inspect`. Signatures
+/// Hex revocation identifiers of every block, authority first. Signatures
 /// are not verified.
+pub fn revocation_ids(token_b64: &str) -> Result<Vec<String>, AuthError> {
+    let token = UnverifiedBiscuit::from_base64(token_b64.trim()).map_err(err)?;
+    Ok(token.revocation_identifiers().iter().map(hex::encode).collect())
+}
+
+/// Datalog source of every block, for `nandi token inspect`, each with its
+/// revocation identifier. Signatures are not verified.
 pub fn inspect(token_b64: &str) -> Result<String, AuthError> {
     let token = UnverifiedBiscuit::from_base64(token_b64.trim()).map_err(err)?;
+    let ids: Vec<String> = token.revocation_identifiers().iter().map(hex::encode).collect();
     let mut out = String::new();
     for i in 0..token.block_count() {
         let src = token.print_block_source(i).map_err(err)?;
-        let title = if i == 0 { "authority".to_string() } else { format!("block {i}") };
+        let name = if i == 0 { "authority".to_string() } else { format!("block {i}") };
+        let title = match ids.get(i) {
+            Some(id) => format!("{name}, revocation id {id}"),
+            None => name,
+        };
         out.push_str(&format!("// {title}\n{}\n", src.trim_end()));
         if i + 1 < token.block_count() {
             out.push('\n');

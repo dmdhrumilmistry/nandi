@@ -43,6 +43,7 @@ NAV = [
         ("policy/capabilities.md", "Capabilities and server risk"),
         ("policy/data-flow.md", "Data flow and taint"),
         ("policy/detection.md", "Detection"),
+        ("policy/packs.md", "Policy packs"),
         ("policy/testing.md", "Testing policy"),
     ]),
     ("Operate", [
