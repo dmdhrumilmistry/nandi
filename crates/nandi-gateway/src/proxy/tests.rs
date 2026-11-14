@@ -456,3 +456,87 @@ async fn a2a_outbound_message_is_forwarded() {
     }
     assert_eq!(directions, [nandi_core::Direction::Outbound, nandi_core::Direction::Inbound]);
 }
+
+/// Spans an OTLP/HTTP JSON receiver got.
+async fn otlp_receiver() -> (String, Arc<Mutex<Vec<Value>>>) {
+    let spans: Arc<Mutex<Vec<Value>>> = Arc::default();
+    let s2 = spans.clone();
+    let app = axum::Router::new().route(
+        "/v1/traces",
+        axum::routing::post(move |body: axum::body::Bytes| {
+            let spans = s2.clone();
+            async move {
+                let doc: Value = serde_json::from_slice(&body).unwrap();
+                for rs in doc["resourceSpans"].as_array().unwrap() {
+                    for ss in rs["scopeSpans"].as_array().unwrap() {
+                        spans.lock().extend(ss["spans"].as_array().unwrap().iter().cloned());
+                    }
+                }
+                "{}"
+            }
+        }),
+    );
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    (url, spans)
+}
+
+#[tokio::test]
+async fn traces_continue_through_the_proxy() {
+    let (collector, spans) = otlp_receiver().await;
+    let up = mock(|_| json_reply(completion())).await;
+    let cfg = Config { routes: vec![route("openai", "/openai", &up.url, RouteKind::Llm)], ..Config::default() };
+    let telemetry = nandi_core::config::TelemetryConfig {
+        otlp_endpoint: Some(collector),
+        otlp_protocol: Some(nandi_core::config::OtlpProtocol::HttpJson),
+        ..Default::default()
+    };
+    let otlp = crate::otlp::Settings::resolve(&telemetry, |_| None).unwrap().unwrap();
+    let policy = PolicySet::from_sources(cfg.policy.default, None, None, &[]).unwrap();
+    let app = App::ephemeral_traced(cfg, policy, otlp).unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    tokio::spawn(serve_on(app.clone(), listener, std::future::pending::<()>()));
+
+    // The caller's span is the parent of nandi's request span, which is the
+    // parent of the decisions and of the upstream.
+    let caller = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
+    let (status, ..) =
+        post_json(&app, &format!("{url}/openai/v1/chat/completions"), &[("traceparent", caller)], &chat("gpt-4o"))
+            .await;
+    assert_eq!(status, StatusCode::OK);
+    let sent = up.seen()[0].headers["traceparent"].to_str().unwrap().to_string();
+    let parts: Vec<&str> = sent.split('-').collect();
+    assert_eq!((parts[0], parts[1], parts[3]), ("00", "4bf92f3577b34da6a3ce929d0e0e4736", "01"));
+    let nandi_span = parts[2].to_string();
+    assert_ne!(nandi_span, "00f067aa0ba902b7");
+
+    let mut got = Vec::new();
+    for _ in 0..50 {
+        app.flush().await;
+        got = spans.lock().clone();
+        if got.iter().any(|s| s["kind"] == 2) && got.len() >= 3 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    let request = got.iter().find(|s| s["kind"] == 2).expect("request span");
+    assert_eq!(request["name"], "POST /openai");
+    assert_eq!(request["spanId"], nandi_span.as_str());
+    assert_eq!(request["parentSpanId"], "00f067aa0ba902b7");
+    assert!(request.to_string().contains("http.response.status_code"));
+    let decisions: Vec<&Value> = got.iter().filter(|s| s["kind"] == 1).collect();
+    let names: Vec<&str> = decisions.iter().map(|s| s["name"].as_str().unwrap()).collect();
+    assert!(names.contains(&"chat gpt-4o") && names.contains(&"chat gpt-4o response"), "{names:?}");
+    for s in &decisions {
+        assert_eq!(s["traceId"], "4bf92f3577b34da6a3ce929d0e0e4736");
+        assert_eq!(s["parentSpanId"], nandi_span.as_str());
+    }
+
+    // Without a caller's trace, nandi starts one.
+    post_json(&app, &format!("{url}/openai/v1/chat/completions"), &[], &chat("gpt-4o")).await;
+    let sent = up.seen()[1].headers["traceparent"].to_str().unwrap().to_string();
+    assert!(!sent.contains("4bf92f3577b34da6a3ce929d0e0e4736"));
+    assert_eq!(sent.len(), 55);
+}

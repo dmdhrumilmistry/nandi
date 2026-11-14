@@ -202,10 +202,12 @@ impl Proxy {
             return json_error(StatusCode::BAD_REQUEST, "invalid request path");
         };
         let (parts, body) = req.into_parts();
-        let ctx = self.context(&parts.headers, principal);
-        let headers = self.upstream_headers(rs, parts.headers);
+        let ctx = self.context(rs, &parts, principal);
+        let span = ctx.span.clone();
+        let mut headers = self.upstream_headers(rs, parts.headers);
+        ctx.propagate(&mut headers);
         let out = Outbound { method: parts.method, uri, headers };
-        match rs.route.kind {
+        let resp = match rs.route.kind {
             RouteKind::Llm if has_body(&out.method) => match read_body(&out.headers, body).await {
                 Ok(bytes) => llm::handle(self, rs, ctx, out, bytes).await,
                 Err(resp) => resp,
@@ -216,20 +218,51 @@ impl Proxy {
             },
             RouteKind::A2a => a2a::handle(self, rs, Arc::new(ctx), out, body).await,
             _ => self.forward(rs, out, body.map_err(BoxError::from).boxed()).await,
+        };
+        if let Some(span) = span {
+            span.set_status(resp.status().as_u16());
         }
+        resp
     }
 
-    fn context(&self, headers: &HeaderMap, principal: Principal) -> Ctx {
+    fn context(&self, rs: &RouteState, parts: &http::request::Parts, principal: Principal) -> Ctx {
+        let headers = &parts.headers;
         let session = header_str(headers, &self.app.cfg.identity.session_header)
             .or_else(|| header_str(headers, MCP_SESSION_HEADER))
             .map(str::trim)
             .filter(|s| !s.is_empty())
             .map(str::to_string);
+        // While traces are exported, every request is a span that continues
+        // the caller's trace (or starts one): the parent of the decisions
+        // and of whatever the upstream records.
+        let otlp = self.app.otlp.as_ref().filter(|o| o.propagates());
+        let mut trace = traceparent(headers);
+        if trace.is_none() && otlp.is_some() {
+            trace = Some(Trace { trace_id: crate::otlp::model::new_trace_id(), parent: None, flags: "01".into() });
+        }
+        let span = match (otlp, &trace) {
+            (Some(o), Some(t)) => Some(crate::otlp::RequestSpan::start(
+                o,
+                &t.trace_id,
+                t.parent.as_deref(),
+                format!("{} {}", parts.method, rs.route.prefix),
+                vec![
+                    ("http.request.method", json!(parts.method.as_str())),
+                    ("http.route", json!(rs.route.prefix)),
+                    ("url.path", json!(parts.uri.path())),
+                    ("nandi.route", json!(rs.route.name)),
+                    ("nandi.route.kind", json!(format!("{:?}", rs.route.kind).to_lowercase())),
+                    ("gen_ai.agent.id", json!(principal.agent)),
+                ],
+            )),
+            _ => None,
+        };
         Ctx {
             principal,
             explicit_session: session.is_some(),
             session: session.unwrap_or_else(|| "default".into()),
-            trace_id: trace_id(headers),
+            trace,
+            span,
         }
     }
 
@@ -377,20 +410,48 @@ impl Outbound {
     }
 }
 
+/// W3C trace context of a request.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct Trace {
+    pub trace_id: String,
+    /// The caller's span.
+    pub parent: Option<String>,
+    pub flags: String,
+}
+
 /// Who is calling and in which session / trace.
 pub(super) struct Ctx {
     pub principal: Principal,
     pub session: String,
     /// The session came from a request header (not derived).
     pub explicit_session: bool,
-    pub trace_id: Option<String>,
+    pub trace: Option<Trace>,
+    /// nandi's span for the request, while traces are exported. It ends
+    /// when the last holder lets go (after a streamed response).
+    pub span: Option<Arc<crate::otlp::RequestSpan>>,
 }
 
 impl Ctx {
     pub fn event(&self, kind: EventKind) -> Event {
         let mut ev = Event::new(Source::Proxy, self.principal.agent.as_str(), self.session.as_str(), kind);
-        ev.trace_id.clone_from(&self.trace_id);
+        if let Some(t) = &self.trace {
+            ev.trace_id = Some(t.trace_id.clone());
+            ev.parent_span_id = match &self.span {
+                Some(span) => Some(span.span_id.clone()),
+                None => t.parent.clone(),
+            };
+        }
         ev
+    }
+
+    /// Send nandi's span upstream as the parent (`traceparent`), so spans
+    /// the upstream records nest under it. `tracestate` passes through.
+    pub fn propagate(&self, headers: &mut HeaderMap) {
+        if let (Some(t), Some(span)) = (&self.trace, &self.span)
+            && let Ok(v) = HeaderValue::from_str(&format!("00-{}-{}-{}", t.trace_id, span.span_id, t.flags))
+        {
+            headers.insert("traceparent", v);
+        }
     }
 
     pub fn groups(&self) -> &[String] {
@@ -398,20 +459,27 @@ impl Ctx {
     }
 }
 
-/// Trace id of a W3C `traceparent` header.
-fn trace_id(headers: &HeaderMap) -> Option<String> {
+/// Trace context of a W3C `traceparent` header.
+fn traceparent(headers: &HeaderMap) -> Option<Trace> {
     let v = header_str(headers, "traceparent")?.trim();
     let mut parts = v.split('-');
-    let (version, id, span) = (parts.next()?, parts.next()?, parts.next()?);
+    let (version, id, span, flags) = (parts.next()?, parts.next()?, parts.next()?, parts.next()?);
     let lower_hex = |s: &str| s.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b));
+    let nonzero = |s: &str| s.bytes().any(|b| b != b'0');
     let valid = version.len() == 2
         && version != "ff"
         && lower_hex(version)
+        // Version 00 has exactly four fields; later versions may add more.
+        && (version != "00" || parts.next().is_none())
         && id.len() == 32
         && lower_hex(id)
-        && id.bytes().any(|b| b != b'0')
-        && span.len() == 16;
-    valid.then(|| id.to_string())
+        && nonzero(id)
+        && span.len() == 16
+        && lower_hex(span)
+        && nonzero(span)
+        && flags.len() == 2
+        && lower_hex(flags);
+    valid.then(|| Trace { trace_id: id.into(), parent: Some(span.into()), flags: flags.into() })
 }
 
 pub(super) fn header_str<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
@@ -744,12 +812,33 @@ mod unit {
     #[test]
     fn parses_traceparent() {
         let mut h = HeaderMap::new();
+        let id = |h: &HeaderMap| traceparent(h).map(|t| t.trace_id);
         h.insert("traceparent", HeaderValue::from_static("00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"));
-        assert_eq!(trace_id(&h).as_deref(), Some("4bf92f3577b34da6a3ce929d0e0e4736"));
-        h.insert("traceparent", HeaderValue::from_static("00-00000000000000000000000000000000-00f067aa0ba902b7-01"));
-        assert_eq!(trace_id(&h), None);
-        h.insert("traceparent", HeaderValue::from_static("garbage"));
-        assert_eq!(trace_id(&h), None);
+        assert_eq!(
+            traceparent(&h),
+            Some(Trace {
+                trace_id: "4bf92f3577b34da6a3ce929d0e0e4736".into(),
+                parent: Some("00f067aa0ba902b7".into()),
+                flags: "01".into(),
+            })
+        );
+        for bad in [
+            "00-00000000000000000000000000000000-00f067aa0ba902b7-01",
+            "00-4bf92f3577b34da6a3ce929d0e0e4736-0000000000000000-01",
+            "00-4bf92f3577b34da6a3ce929d0e0e4736-00F067AA0BA902B7-01",
+            "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01-extra",
+            "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7",
+            "garbage",
+        ] {
+            h.insert("traceparent", HeaderValue::from_static(bad));
+            assert_eq!(id(&h), None, "{bad}");
+        }
+        // Future versions may carry more fields.
+        h.insert(
+            "traceparent",
+            HeaderValue::from_static("01-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01-xyz"),
+        );
+        assert!(id(&h).is_some());
     }
 
     #[test]

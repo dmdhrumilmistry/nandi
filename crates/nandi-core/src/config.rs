@@ -789,9 +789,36 @@ impl Default for AuditConfig {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct TelemetryConfig {
-    /// OTLP/HTTP endpoint base, e.g. `http://localhost:4318`.
+    /// OTLP/HTTP endpoint base, e.g. `http://localhost:4318`; each signal
+    /// goes to `<base>/v1/<signal>`. Falls back to
+    /// `OTEL_EXPORTER_OTLP_ENDPOINT`.
     pub otlp_endpoint: Option<String>,
+    /// Full URL for traces, used as is (`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`).
+    pub otlp_traces_endpoint: Option<String>,
+    /// Full URL for metrics (`OTEL_EXPORTER_OTLP_METRICS_ENDPOINT`).
+    pub otlp_metrics_endpoint: Option<String>,
+    /// Full URL for logs (`OTEL_EXPORTER_OTLP_LOGS_ENDPOINT`).
+    pub otlp_logs_endpoint: Option<String>,
+    /// Headers sent with every OTLP request; values take `env:` and `file:`.
     pub otlp_headers: BTreeMap<String, String>,
+    /// `http/protobuf` or `http/json`; unset means `OTEL_EXPORTER_OTLP_PROTOCOL`,
+    /// else `http/protobuf`.
+    pub otlp_protocol: Option<OtlpProtocol>,
+    /// `gzip` or `none`; unset means `OTEL_EXPORTER_OTLP_COMPRESSION`, else none.
+    pub otlp_compression: Option<OtlpCompression>,
+    /// Which signals are sent (all by default).
+    pub otlp_signals: OtlpSignals,
+    /// Lowest verdict sent as an OTLP log record (`allow`: every decision).
+    pub otlp_logs_min_verdict: crate::decision::Verdict,
+    /// Seconds between metric exports; unset means `OTEL_METRIC_EXPORT_INTERVAL`,
+    /// else 60.
+    pub otlp_metrics_interval_secs: Option<u64>,
+    /// Extra resource attributes (merged over `OTEL_RESOURCE_ATTRIBUTES`).
+    pub resource_attributes: BTreeMap<String, String>,
+    /// While traces are exported, continue the caller's trace and send
+    /// nandi's span upstream in `traceparent`, so upstream spans nest under it.
+    pub propagate_trace_context: bool,
+    /// `service.name`; `OTEL_SERVICE_NAME` applies while this is the default.
     pub service_name: String,
     /// Expose Prometheus metrics on the admin listener at `/metrics`.
     pub prometheus: bool,
@@ -800,6 +827,41 @@ pub struct TelemetryConfig {
     pub webhook_min_severity: crate::decision::Severity,
     /// Log format: `text` or `json`.
     pub log_format: String,
+}
+
+/// OTLP encoding over HTTP.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum OtlpProtocol {
+    #[serde(rename = "http/protobuf")]
+    HttpProtobuf,
+    #[serde(rename = "http/json")]
+    HttpJson,
+}
+
+/// OTLP request body compression.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OtlpCompression {
+    None,
+    Gzip,
+}
+
+/// OpenTelemetry signals nandi sends.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct OtlpSignals {
+    /// A span per decision (`OTEL_TRACES_EXPORTER=none` turns it off).
+    pub traces: bool,
+    /// Counters, gauges and the evaluation latency histogram.
+    pub metrics: bool,
+    /// A log record per decision and per administrative action.
+    pub logs: bool,
+}
+
+impl Default for OtlpSignals {
+    fn default() -> Self {
+        Self { traces: true, metrics: true, logs: true }
+    }
 }
 
 /// Destination type of an export.
@@ -946,7 +1008,17 @@ impl Default for TelemetryConfig {
     fn default() -> Self {
         Self {
             otlp_endpoint: None,
+            otlp_traces_endpoint: None,
+            otlp_metrics_endpoint: None,
+            otlp_logs_endpoint: None,
             otlp_headers: BTreeMap::new(),
+            otlp_protocol: None,
+            otlp_compression: None,
+            otlp_signals: OtlpSignals::default(),
+            otlp_logs_min_verdict: crate::decision::Verdict::Allow,
+            otlp_metrics_interval_secs: None,
+            resource_attributes: BTreeMap::new(),
+            propagate_trace_context: true,
             service_name: "nandi".into(),
             prometheus: true,
             webhooks: Vec::new(),

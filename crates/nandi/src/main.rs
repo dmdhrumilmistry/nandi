@@ -530,7 +530,7 @@ async fn run(config: &Path, log_level: &str) -> anyhow::Result<()> {
     };
     let _ = tx.send(true);
     let second = tokio::time::timeout(Duration::from_secs(10), other).await;
-    app.recorder.flush().await;
+    app.flush().await;
     app.shutdown();
     first.context("listener task panicked")?.with_context(|| format!("{first_name} listener"))?;
     if let Ok(r) = second {
@@ -596,7 +596,7 @@ async fn wrap(config: &Path, opts: WrapOptions) -> anyhow::Result<i32> {
     let classifier = ml_classifier(&cfg, &base)?;
     let app = App::build(cfg, &base, classifier)?;
     let code = stdio::run(app.clone(), opts).await;
-    app.recorder.flush().await;
+    app.flush().await;
     app.shutdown();
     code
 }

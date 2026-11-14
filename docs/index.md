@@ -11,7 +11,7 @@ production:
 - **What did the agent actually do?** Every model request, tool listing, tool
   call, tool result and agent-to-agent message becomes a structured event,
   kept in a signed, hash-chained audit log and exported as OpenTelemetry
-  spans.
+  traces, logs and metrics.
 - **Should it be allowed to?** Policies over agents, tools and arguments
   (YAML rules and Cedar), a default-deny mode, budgets, and a human approval
   queue for the calls you don't want to automate.

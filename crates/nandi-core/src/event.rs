@@ -45,6 +45,10 @@ pub struct Event {
     /// W3C trace id when the caller propagated one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trace_id: Option<String>,
+    /// Parent span id: nandi's span for the request, or the caller's span.
+    /// The event's own span id is derived from `id`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_span_id: Option<String>,
     pub kind: EventKind,
 }
 
@@ -57,6 +61,7 @@ impl Event {
             agent: agent.into(),
             session: session.into(),
             trace_id: None,
+            parent_span_id: None,
             kind,
         }
     }

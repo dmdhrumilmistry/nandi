@@ -78,11 +78,13 @@ decision), the column shows both, for example `deny>allow`.
 
 - Prometheus: `GET http://127.0.0.1:8788/metrics` (`telemetry.prometheus`,
   on by default): events by kind, decisions by verdict, enforced verdicts,
-  evaluation latency, approvals, recorder drops, plus gauges for sessions,
-  pending approvals and killed agents.
+  evaluation latency, approvals, recorder drops, export and OTLP delivery,
+  plus gauges for sessions, pending approvals and killed agents.
 - OpenTelemetry: set `telemetry.otlp_endpoint` (for example
-  `http://127.0.0.1:4318`) and optional `otlp_headers`; events are exported as
-  OTLP/HTTP spans following the GenAI semantic conventions.
+  `http://127.0.0.1:4318`) or `OTEL_EXPORTER_OTLP_ENDPOINT`. nandi sends
+  traces (continuing the agent's trace and passing it upstream), a log record
+  per decision and admin action, and these metrics over OTLP/HTTP; see
+  [OpenTelemetry](opentelemetry.md).
 - SIEMs, webhooks and files: see [exports](exports.md). The older
   `telemetry.webhooks` receive findings at or above
   `telemetry.webhook_min_severity`.
