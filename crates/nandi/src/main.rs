@@ -846,7 +846,17 @@ async fn dispatch(cli: Cli) -> anyhow::Result<i32> {
         }
         Cmd::Managed { files, json } => managed(&files, json, config),
         Cmd::Version => {
-            println!("nandi {}", env!("CARGO_PKG_VERSION"));
+            // Optional features built in, for example `nandi 0.3.0 (ebpf)`.
+            let features: Vec<&str> = [(nandi_sense::EBPF_BUILT, "ebpf"), (cfg!(feature = "ml"), "ml")]
+                .into_iter()
+                .filter(|f| f.0)
+                .map(|f| f.1)
+                .collect();
+            if features.is_empty() {
+                println!("nandi {}", env!("CARGO_PKG_VERSION"));
+            } else {
+                println!("nandi {} ({})", env!("CARGO_PKG_VERSION"), features.join(", "));
+            }
             Ok(0)
         }
     }

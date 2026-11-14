@@ -4,8 +4,11 @@ name: Build
 # `init` and `policy validate` (which loads Cedar). Called by CI on pull
 # requests, and by the Release and Image workflows on tags.
 #
-# Linux binaries are static (musl). armv7, riscv64 and ppc64le are
-# cross-compiled with cargo-zigbuild and run under QEMU for the smoke test.
+# Linux binaries are static (musl); x86_64 and aarch64 include the eBPF host
+# sensor (its BPF program is compiled with clang at build time and embedded,
+# and `sensor.backend: auto` falls back to procfs when it cannot load).
+# armv7, riscv64 and ppc64le are cross-compiled with cargo-zigbuild and run
+# under QEMU for the smoke test.
 # Artifacts are named nandi-<target>; Linux ones also carry platform.txt
 # (the Docker platform, e.g. linux/arm/v7) for the image workflow.
 
@@ -35,8 +38,8 @@ jobs:
           LINUX_ONLY: ${{ inputs.linux-only }}
         run: |
           ALL='[
-            {"target":"x86_64-unknown-linux-musl","runner":"ubuntu-latest","platform":"linux/amd64"},
-            {"target":"aarch64-unknown-linux-musl","runner":"ubuntu-24.04-arm","platform":"linux/arm64"},
+            {"target":"x86_64-unknown-linux-musl","runner":"ubuntu-latest","platform":"linux/amd64","features":"ebpf"},
+            {"target":"aarch64-unknown-linux-musl","runner":"ubuntu-24.04-arm","platform":"linux/arm64","features":"ebpf"},
             {"target":"armv7-unknown-linux-musleabihf","runner":"ubuntu-latest","zig":true,"qemu":"arm","platform":"linux/arm/v7"},
             {"target":"riscv64gc-unknown-linux-musl","runner":"ubuntu-latest","zig":true,"qemu":"riscv64","platform":"linux/riscv64"},
             {"target":"powerpc64le-unknown-linux-musl","runner":"ubuntu-latest","zig":true,"qemu":"ppc64le","platform":"linux/ppc64le"},
@@ -69,8 +72,15 @@ jobs:
         if: ${{ !matrix.zig }}
         shell: bash
         run: |
+          FEATURES=()
           if [ "$RUNNER_OS" = Linux ]; then sudo apt-get update && sudo apt-get install -y musl-tools; fi
-          cargo build --release --locked -p nandi --target ${{ matrix.target }}
+          # The eBPF host sensor is compiled in (its BPF program needs clang
+          # and the kernel UAPI headers at build time only).
+          if [ -n "${{ matrix.features }}" ]; then
+            sudo apt-get install -y clang llvm libbpf-dev
+            FEATURES=(--features "${{ matrix.features }}")
+          fi
+          cargo build --release --locked -p nandi --target ${{ matrix.target }} "${FEATURES[@]}"
 
       - if: ${{ matrix.zig }}
         uses: mlugg/setup-zig@v2
@@ -106,6 +116,7 @@ jobs:
           file "$BIN" || true
           DIR=$(mktemp -d)
           "${RUN[@]}" version
+          if [ "${{ matrix.features }}" = ebpf ]; then "${RUN[@]}" version | grep -q '(ebpf)'; fi
           "${RUN[@]}" init --dir "$DIR" >/dev/null
           "${RUN[@]}" policy validate -c "$DIR/nandi.yaml"
           "${RUN[@]}" policy packs >/dev/null

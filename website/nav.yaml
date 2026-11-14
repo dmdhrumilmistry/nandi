@@ -1,0 +1,48 @@
+# Documentation site navigation: sections and their pages, in order.
+# Paths are relative to docs/.
+
+- section: Start
+  pages:
+    - { path: index.md, title: "Introduction" }
+    - { path: getting-started.md, title: "Getting started" }
+    - { path: how-it-works.md, title: "How it works" }
+- section: Connect agents
+  pages:
+    - { path: guides/proxy.md, title: "Proxy: LLM, MCP, A2A" }
+    - { path: guides/mcp.md, title: "MCP servers" }
+    - { path: guides/coding-agents.md, title: "Coding agents" }
+    - { path: guides/discovery.md, title: "AI footprint and coverage" }
+    - { path: guides/host-sensor.md, title: "Host sensor" }
+    - { path: guides/ml-classifier.md, title: "ML classifier" }
+- section: Policy
+  pages:
+    - { path: policy/rules.md, title: "Writing rules" }
+    - { path: policy/cedar.md, title: "Cedar policies" }
+    - { path: policy/capabilities.md, title: "Capabilities and server risk" }
+    - { path: policy/changes.md, title: "Managing policy in the dashboard" }
+    - { path: policy/data-flow.md, title: "Data flow and taint" }
+    - { path: policy/detection.md, title: "Detection" }
+    - { path: policy/packs.md, title: "Policy packs" }
+    - { path: policy/testing.md, title: "Testing policy" }
+- section: Operate
+  pages:
+    - { path: operations/enforce.md, title: "Monitor to enforce" }
+    - { path: operations/approvals.md, title: "Approvals and kill switch" }
+    - { path: operations/identity.md, title: "Identity" }
+    - { path: operations/users.md, title: "Users and audit trail" }
+    - { path: operations/audit.md, title: "Audit log" }
+    - { path: operations/observability.md, title: "Observability" }
+    - { path: operations/opentelemetry.md, title: "OpenTelemetry" }
+    - { path: operations/exports.md, title: "SIEM and webhook exports" }
+    - { path: operations/deployment.md, title: "Deployment" }
+    - { path: operations/mdm.md, title: "Fleets: Jamf, Intune, Linux" }
+- section: Reference
+  pages:
+    - { path: reference/configuration.md, title: "Configuration" }
+    - { path: reference/cli.md, title: "CLI" }
+    - { path: reference/admin-api.md, title: "Admin API" }
+- section: Background
+  pages:
+    - { path: background/threat-model.md, title: "Threat model" }
+    - { path: background/research.md, title: "Research" }
+    - { path: background/evaluation.md, title: "Evaluation" }

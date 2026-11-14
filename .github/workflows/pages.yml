@@ -3,9 +3,9 @@ name: Website
 on:
   push:
     branches: [main]
-    paths: ["docs/**", "website/**", "examples/**", ".github/workflows/pages.yml"]
+    paths: ["docs/**", "website/**", "examples/**", "crates/xtask/**", ".github/workflows/pages.yml"]
   pull_request:
-    paths: ["docs/**", "website/**", "examples/**", ".github/workflows/pages.yml"]
+    paths: ["docs/**", "website/**", "examples/**", "crates/xtask/**", ".github/workflows/pages.yml"]
   workflow_dispatch:
 
 permissions:
@@ -20,26 +20,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - run: pip install markdown==3.10.2 pygments==2.19.2
-      - run: python website/build.py --out _site --base-url https://dmdhrumilmistry.github.io/nandi
-      - name: Check internal links
-        run: |
-          python - <<'PY'
-          import re, pathlib, sys
-          root = pathlib.Path("_site")
-          bad = []
-          for page in root.rglob("*.html"):
-              for url in re.findall(r'(?:href|src)="([^"#]+)(?:#[^"]*)?"', page.read_text()):
-                  if re.match(r"^(https?:|mailto:|data:)", url):
-                      continue
-                  if not (page.parent / url).resolve().exists():
-                      bad.append(f"{page.relative_to(root)} -> {url}")
-          print("\n".join(bad))
-          sys.exit(1 if bad else 0)
-          PY
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo xtask site --out _site --base-url https://dmdhrumilmistry.github.io/nandi
+      - name: Check internal links and anchors
+        run: cargo xtask check-links _site
       - if: github.event_name != 'pull_request'
         uses: actions/upload-pages-artifact@v3
         with:

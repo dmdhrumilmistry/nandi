@@ -28,9 +28,11 @@ The image contains a static binary on an empty base and runs as an
 unprivileged user. See [Deployment](operations/deployment.md) for the
 listener and volume settings a container needs.
 
-Optional features are compiled in on request: `--features ebpf` adds the
-eBPF [host sensor](guides/host-sensor.md) backend and `--features ml` the
-[ONNX classifier](guides/ml-classifier.md).
+Everything is in the one `nandi` binary: the proxy, the MCP wrapper, agent
+hooks, the dashboard, the audit log, discovery and, on Linux x86_64 and
+aarch64, the eBPF [host sensor](guides/host-sensor.md). Only the
+[ONNX classifier](guides/ml-classifier.md) is a separate build
+(`--features ml`), because it loads the ONNX Runtime library.
 
 ## Create a configuration
 

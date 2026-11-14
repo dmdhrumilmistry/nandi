@@ -1,0 +1,3 @@
+[alias]
+# Developer tasks, for example `cargo xtask site --out _site`.
+xtask = "run --quiet --package xtask --"
