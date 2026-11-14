@@ -152,29 +152,41 @@ impl Exports {
         w.deliver(&[live]).await
     }
 
+    /// Delivery counters per export.
+    pub fn series(&self) -> Vec<crate::metrics::Series> {
+        use crate::metrics::{Series, SeriesKind};
+        type Counter = (&'static str, &'static str, &'static str, fn(&Stats) -> u64);
+        let counters: [Counter; 3] = [
+            ("nandi_export_sent_total", "nandi.export.sent", "Events delivered, per export.", |s| s.sent.load(Relaxed)),
+            (
+                "nandi_export_failed_total",
+                "nandi.export.failed",
+                "Events that could not be delivered after retries.",
+                |s| s.failed.load(Relaxed),
+            ),
+            (
+                "nandi_export_dropped_total",
+                "nandi.export.dropped",
+                "Events dropped because the export queue was full.",
+                |s| s.dropped.load(Relaxed),
+            ),
+        ];
+        counters
+            .into_iter()
+            .map(|(name, otel, help, f)| Series {
+                name,
+                otel,
+                help,
+                unit: "{event}",
+                kind: SeriesKind::Counter,
+                points: self.sinks.iter().map(|s| (vec![("export", s.cfg.name.clone())], f(&s.stats) as f64)).collect(),
+            })
+            .collect()
+    }
+
     /// Prometheus counters per export.
     pub fn metrics(&self) -> String {
-        use std::fmt::Write;
-        let mut out = String::new();
-        for (name, help, f) in [
-            (
-                "nandi_export_sent_total",
-                "Events delivered, per export.",
-                (|s: &Stats| s.sent.load(Relaxed)) as fn(&Stats) -> u64,
-            ),
-            ("nandi_export_failed_total", "Events that could not be delivered after retries.", |s: &Stats| {
-                s.failed.load(Relaxed)
-            }),
-            ("nandi_export_dropped_total", "Events dropped because the export queue was full.", |s: &Stats| {
-                s.dropped.load(Relaxed)
-            }),
-        ] {
-            let _ = writeln!(out, "# HELP {name} {help}\n# TYPE {name} counter");
-            for s in &self.sinks {
-                let _ = writeln!(out, "{name}{{export=\"{}\"}} {}", s.cfg.name.replace('"', ""), f(&s.stats));
-            }
-        }
-        out
+        crate::metrics::render(&self.series())
     }
 }
 
@@ -599,7 +611,7 @@ pub fn target(e: &LiveEvent) -> String {
     }
 }
 
-fn summary(e: &LiveEvent) -> String {
+pub(crate) fn summary(e: &LiveEvent) -> String {
     match &e.event.kind {
         EventKind::Admin(a) => format!("{} {} {} ({})", a.actor, a.action, a.target, a.outcome),
         _ if e.decision.findings.is_empty() => {

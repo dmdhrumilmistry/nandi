@@ -195,6 +195,7 @@ fn build(app: Arc<App>, shutdown: watch::Receiver<bool>) -> Router {
         .route("/v1/policies/changes/{id}/reject", post(policy_reject))
         .route("/v1/policies/changes/{id}/withdraw", post(policy_withdraw))
         .route("/v1/exports", get(exports_status))
+        .route("/v1/telemetry", get(telemetry_status))
         .route("/v1/exports/{name}/test", post(export_test))
         .route("/v1/me", get(me))
         .route("/v1/users", get(users_list).post(user_create))
@@ -490,14 +491,7 @@ async fn metrics(State(st): State<AdminState>) -> Response {
     if !st.app.cfg.telemetry.prometheus {
         return ApiError::not_found("metrics disabled (telemetry.prometheus: false)").into_response();
     }
-    let app = &st.app;
-    let gauges = [
-        ("nandi_sessions", "Active sessions.", app.engine.sessions().len() as f64),
-        ("nandi_approvals_pending", "Calls waiting for an operator.", app.approvals.len() as f64),
-        ("nandi_agents_killed", "Agents stopped by the kill switch.", app.engine.killed().len() as f64),
-    ];
-    let mut text = app.metrics.render(&gauges);
-    text.push_str(&app.exports.metrics());
+    let text = crate::metrics::render(&st.app.metric_series());
     let mut resp = text.into_response();
     resp.headers_mut().insert(header::CONTENT_TYPE, HeaderValue::from_static("text/plain; version=0.0.4"));
     resp
@@ -891,6 +885,28 @@ async fn policy_withdraw(
 
 async fn exports_status(State(st): State<AdminState>) -> ApiResult {
     ok_json(st.app.exports.status())
+}
+
+/// OpenTelemetry and Prometheus settings, and delivery per OTLP signal.
+async fn telemetry_status(State(st): State<AdminState>) -> ApiResult {
+    let app = &st.app;
+    let otlp = match &app.otlp {
+        Some(o) => {
+            let s = o.settings();
+            let resource: serde_json::Map<String, Value> = s.resource.iter().cloned().collect();
+            json!({
+                "enabled": true,
+                "signals": o.status(),
+                "compression": s.compression,
+                "propagate_trace_context": o.propagates(),
+                "metrics_interval_secs": s.metrics_interval.as_secs(),
+                "logs_min_verdict": s.logs_min_verdict,
+                "resource": resource,
+            })
+        }
+        None => json!({ "enabled": false }),
+    };
+    ok_json(json!({ "otlp": otlp, "prometheus": app.cfg.telemetry.prometheus }))
 }
 
 /// Deliver a test event to one export, now.
@@ -1701,6 +1717,13 @@ mod tests {
         let text = v.as_str().unwrap();
         assert!(text.contains("nandi_events_total{kind=\"tool_call\"} 1"), "{text}");
         assert!(text.contains("nandi_approvals_pending 0"));
+
+        assert!(text.contains("# TYPE nandi_eval_duration_seconds histogram"));
+        assert!(text.contains("nandi_export_sent_total"));
+
+        let (s, v) = get_json(&r, "/v1/telemetry").await;
+        assert_eq!(s, StatusCode::OK);
+        assert_eq!(v, json!({ "otlp": { "enabled": false }, "prometheus": true }));
 
         let mut cfg = Config::default();
         cfg.telemetry.prometheus = false;

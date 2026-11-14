@@ -67,6 +67,8 @@ pub struct App {
     pub users: crate::users::Users,
     /// SIEM, webhook and file exports.
     pub exports: Arc<crate::exports::Exports>,
+    /// OpenTelemetry traces, logs and metrics, when configured.
+    pub otlp: Option<Arc<crate::otlp::Otlp>>,
     /// Policy documents and change requests from the dashboard.
     pub policies: crate::policies::Policies,
     pub started: Instant,
@@ -91,13 +93,14 @@ impl App {
             tracing::warn!("policy: {warning}");
         }
         let audit = cfg.audit.enabled.then_some(log);
-        Self::assemble(cfg, base_dir, policy, store, audit, classifier)
+        let otlp = crate::otlp::Settings::from_env(&cfg.telemetry).context("telemetry")?;
+        Self::assemble(cfg, base_dir, policy, store, audit, classifier, otlp)
     }
 
     /// In-memory app for tests and evaluation runs.
     pub fn ephemeral(cfg: Config, policy: PolicySet) -> anyhow::Result<Arc<App>> {
         let store: Arc<dyn StateStore> = Arc::new(nandi_core::MemoryStore::new());
-        Self::assemble(cfg, Path::new("."), policy, store, None, None)
+        Self::assemble(cfg, Path::new("."), policy, store, None, None, None)
     }
 
     /// [`App::ephemeral`] with an in-memory audit log.
@@ -105,7 +108,14 @@ impl App {
     pub fn ephemeral_audited(cfg: Config, policy: PolicySet) -> anyhow::Result<Arc<App>> {
         let store: Arc<dyn StateStore> = Arc::new(nandi_core::MemoryStore::new());
         let audit = Arc::new(AuditLog::open_in_memory()?);
-        Self::assemble(cfg, Path::new("."), policy, store, Some(audit), None)
+        Self::assemble(cfg, Path::new("."), policy, store, Some(audit), None, None)
+    }
+
+    /// [`App::ephemeral`] exporting OpenTelemetry with `otlp`.
+    #[cfg(test)]
+    pub fn ephemeral_traced(cfg: Config, policy: PolicySet, otlp: crate::otlp::Settings) -> anyhow::Result<Arc<App>> {
+        let store: Arc<dyn StateStore> = Arc::new(nandi_core::MemoryStore::new());
+        Self::assemble(cfg, Path::new("."), policy, store, None, None, Some(otlp))
     }
 
     fn assemble(
@@ -115,6 +125,7 @@ impl App {
         store: Arc<dyn StateStore>,
         audit: Option<Arc<AuditLog>>,
         classifier: Option<Arc<dyn Classifier>>,
+        otlp: Option<crate::otlp::Settings>,
     ) -> anyhow::Result<Arc<App>> {
         let mut engine = Engine::new(cfg.clone(), policy, store.clone());
         let blocking_eval = classifier.is_some() && cfg.ml.enabled;
@@ -131,6 +142,7 @@ impl App {
         let client = client::build();
         let metrics = Arc::new(Metrics::new());
         let exports = crate::exports::Exports::start(&cfg.exports, client.clone()).context("starting exports")?;
+        let otlp = otlp.map(|s| crate::otlp::Otlp::start(s, client.clone()));
         let recorder = Recorder::start(
             audit.clone(),
             cfg.audit.clone(),
@@ -138,6 +150,7 @@ impl App {
             client.clone(),
             metrics.clone(),
             (!exports.is_empty()).then(|| exports.clone()),
+            otlp.clone(),
         );
         let approvals = ApprovalBroker::new(cfg.approvals.clone(), client.clone(), metrics.clone());
         let users = crate::users::Users::new(&cfg.admin, store.clone());
@@ -154,13 +167,64 @@ impl App {
             card_keys,
             users,
             exports,
+            otlp,
             policies,
             started: Instant::now(),
             blocking_eval,
             cfg,
         });
+        if let Some(otlp) = &app.otlp {
+            let weak = Arc::downgrade(&app);
+            otlp.spawn_metrics(move || weak.upgrade().map(|app| app.metric_series()));
+        }
         app.clone().spawn_housekeeping();
         Ok(app)
+    }
+
+    /// Point-in-time values for metrics.
+    pub fn gauges(&self) -> Vec<crate::metrics::Gauge> {
+        use crate::metrics::Gauge;
+        vec![
+            Gauge {
+                name: "nandi_sessions",
+                otel: "nandi.sessions",
+                help: "Active sessions.",
+                unit: "{session}",
+                value: self.engine.sessions().len() as f64,
+            },
+            Gauge {
+                name: "nandi_approvals_pending",
+                otel: "nandi.approvals.pending",
+                help: "Calls waiting for an operator.",
+                unit: "{call}",
+                value: self.approvals.len() as f64,
+            },
+            Gauge {
+                name: "nandi_agents_killed",
+                otel: "nandi.agents.killed",
+                help: "Agents stopped by the kill switch.",
+                unit: "{agent}",
+                value: self.engine.killed().len() as f64,
+            },
+        ]
+    }
+
+    /// Every metric series: the Prometheus endpoint and OTLP metrics.
+    pub fn metric_series(&self) -> Vec<crate::metrics::Series> {
+        let mut series = self.metrics.series(&self.gauges());
+        series.extend(self.exports.series());
+        if let Some(otlp) = &self.otlp {
+            series.extend(otlp.series());
+        }
+        series
+    }
+
+    /// Wait until recorded events are persisted and exported (shutdown).
+    pub async fn flush(&self) {
+        self.recorder.flush().await;
+        if let Some(otlp) = &self.otlp {
+            otlp.flush().await;
+        }
     }
 
     /// Evaluate an event, hold it for approval if needed, record it, and

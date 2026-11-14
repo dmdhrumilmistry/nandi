@@ -167,7 +167,14 @@ telemetry:
   log_format: text
   prometheus: true
   service_name: nandi
+  # OpenTelemetry over OTLP/HTTP (or set OTEL_EXPORTER_OTLP_ENDPOINT). See
+  # docs/operations/opentelemetry.md.
   # otlp_endpoint: http://127.0.0.1:4318
+  # otlp_headers: { authorization: env:OTLP_AUTH }
+  # otlp_protocol: http/protobuf            # or http/json
+  # otlp_signals: { traces: true, metrics: true, logs: true }
+  # otlp_logs_min_verdict: allow            # alert: only flagged decisions
+  # resource_attributes: { deployment.environment.name: prod }
   # webhooks: [env:NANDI_ALERT_WEBHOOK]
   webhook_min_severity: high
 

@@ -633,7 +633,7 @@ table.tv td.n, table.tv th.n { text-align: right; font-variant-numeric: tabular-
       <div id="trail"></div>
     </section>
     <section class="card" aria-labelledby="h-exports">
-      <header><h2 id="h-exports">Exports</h2><p>Where events and admin actions are sent: SIEMs, webhooks and files (the exports setting)</p></header>
+      <header><h2 id="h-exports">Exports</h2><p>Where events and admin actions are sent: SIEMs, webhooks, files (the exports setting) and OpenTelemetry</p></header>
       <div id="exports"></div>
     </section>
   </div>
@@ -2264,12 +2264,14 @@ async function loadTrail() {
 }
 const exportNote = {};
 const EXPORT_TYPE = { webhook: "Webhook", splunk_hec: "Splunk HEC", elastic: "Elasticsearch", syslog: "Syslog", file: "File" };
+const SIGNAL = { traces: "Traces", metrics: "Metrics", logs: "Logs" };
 async function loadExports() {
-  let list;
+  let list, otel = [];
   try { list = await api("/v1/exports"); } catch (_) { return; }
-  if (!list.length) {
+  try { const t = await api("/v1/telemetry"); otel = (t.otlp && t.otlp.signals) || []; } catch (_) { /* older server */ }
+  if (!list.length && !otel.length) {
     $("exports").replaceChildren(el("div", { class: "empty" },
-      "No exports configured. Add an exports entry to send events to Splunk, Elasticsearch, a syslog SIEM, a webhook or a file; see Exports in the documentation."));
+      "No exports configured. Add an exports entry to send events to Splunk, Elasticsearch, a syslog SIEM, a webhook or a file, or set telemetry.otlp_endpoint for OpenTelemetry; see Exports and OpenTelemetry in the documentation."));
     return;
   }
   const body = el("tbody", {});
@@ -2291,6 +2293,17 @@ async function loadExports() {
       el("td", {}, x.last_ok_ms ? ago(x.last_ok_ms) : "not yet",
         x.last_error ? el("div", { class: "export-err", title: x.last_error }, x.last_error.slice(0, 120)) : null),
       el("td", { class: "uact" }, test, note)));
+  }
+  for (const x of otel) {
+    body.append(el("tr", {},
+      el("td", {}, el("strong", {}, "OpenTelemetry"), el("div", { class: "muted" }, (SIGNAL[x.signal] || x.signal) + ", OTLP " + x.protocol)),
+      el("td", { class: "mono", title: x.target }, x.target),
+      el("td", { class: "num" }, x.sent.toLocaleString()),
+      el("td", { class: "num" }, x.failed ? el("span", { class: "outcome failed" }, x.failed.toLocaleString()) : "0"),
+      el("td", { class: "num" }, x.dropped ? el("span", { class: "outcome failed" }, x.dropped.toLocaleString()) : "0"),
+      el("td", {}, x.last_ok_ms ? ago(x.last_ok_ms) : "not yet",
+        x.last_error ? el("div", { class: "export-err", title: x.last_error }, x.last_error.slice(0, 120)) : null),
+      el("td", {})));
   }
   $("exports").replaceChildren(el("table", {},
     el("colgroup", {}, el("col", { class: "c-who" }), el("col", {}), el("col", { class: "c-num" }), el("col", { class: "c-num" }), el("col", { class: "c-num" }), el("col", { class: "c-lastdel" }), el("col", { class: "c-act" })),

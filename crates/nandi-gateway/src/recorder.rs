@@ -3,7 +3,7 @@
 //! Capture points hand every (event, decision) to [`Recorder::record`],
 //! which never blocks: entries go into a bounded queue and a background task
 //! batches them into the audit log, the live event stream (dashboard / SSE),
-//! OTLP and webhooks. When the queue is full entries are dropped and counted
+//! exports, OpenTelemetry and webhooks. When the queue is full entries are dropped and counted
 //! rather than slowing the agent down.
 
 use std::sync::Arc;
@@ -14,12 +14,12 @@ use serde::Serialize;
 use tokio::sync::{broadcast, mpsc};
 
 use nandi_audit::AuditLog;
-use nandi_core::config::{AuditConfig, TelemetryConfig, resolve_secret};
+use nandi_core::config::{AuditConfig, TelemetryConfig};
 use nandi_core::{Decision, Event, Verdict};
 
 use crate::client::{HttpClient, post_json};
 use crate::metrics::Metrics;
-use crate::otlp;
+use crate::otlp::Otlp;
 
 const QUEUE: usize = 8192;
 const BATCH: usize = 256;
@@ -67,11 +67,12 @@ impl Recorder {
         client: HttpClient,
         metrics: Arc<Metrics>,
         exports: Option<Arc<crate::exports::Exports>>,
+        otlp: Option<Arc<Otlp>>,
     ) -> Self {
         let (tx, rx) = mpsc::channel(QUEUE);
         let (live, _) = broadcast::channel(1024);
         let worker =
-            Worker { audit, audit_cfg, telemetry, client, metrics: metrics.clone(), live: live.clone(), exports };
+            Worker { audit, audit_cfg, telemetry, client, metrics: metrics.clone(), live: live.clone(), exports, otlp };
         tokio::spawn(worker.run(rx));
         Self { tx, live, metrics }
     }
@@ -107,16 +108,12 @@ struct Worker {
     live: broadcast::Sender<Arc<LiveEvent>>,
     /// SIEM, webhook and file exports.
     exports: Option<Arc<crate::exports::Exports>>,
+    /// OpenTelemetry traces and logs.
+    otlp: Option<Arc<Otlp>>,
 }
 
 impl Worker {
     async fn run(self, mut rx: mpsc::Receiver<Msg>) {
-        let otlp_headers: Vec<(String, String)> = self
-            .telemetry
-            .otlp_headers
-            .iter()
-            .filter_map(|(k, v)| resolve_secret(v).ok().map(|v| (k.clone(), v)))
-            .collect();
         let mut msgs: Vec<Msg> = Vec::with_capacity(BATCH);
         loop {
             let n = rx.recv_many(&mut msgs, BATCH).await;
@@ -144,7 +141,7 @@ impl Worker {
                 }
             }
             if !batch.is_empty() {
-                self.flush(batch, &otlp_headers).await;
+                self.flush(batch).await;
             }
             for w in waiters {
                 let _ = w.send(());
@@ -152,7 +149,7 @@ impl Worker {
         }
     }
 
-    async fn flush(&self, batch: Vec<Entry>, otlp_headers: &[(String, String)]) {
+    async fn flush(&self, batch: Vec<Entry>) {
         let mut seqs: Vec<Option<u64>> = vec![None; batch.len()];
         if let Some(audit) = &self.audit {
             let items: Vec<(usize, (Event, Decision))> = batch
@@ -182,12 +179,8 @@ impl Worker {
             }
         }
 
-        let mut spans = Vec::new();
         let mut alerts = Vec::new();
         for (entry, seq) in batch.into_iter().zip(seqs) {
-            if self.telemetry.otlp_endpoint.is_some() {
-                spans.push(otlp::span(&entry.event, &entry.decision, entry.applied, entry.eval_ns));
-            }
             if !self.telemetry.webhooks.is_empty()
                 && entry.decision.findings.iter().any(|f| f.severity >= self.telemetry.webhook_min_severity)
             {
@@ -218,18 +211,12 @@ impl Worker {
             if let Some(x) = &self.exports {
                 x.send(&live);
             }
+            if let Some(o) = &self.otlp {
+                o.record(&live, entry.eval_ns);
+            }
             let _ = self.live.send(live);
         }
 
-        if let Some(endpoint) = &self.telemetry.otlp_endpoint
-            && !spans.is_empty()
-        {
-            let url = format!("{}/v1/traces", endpoint.trim_end_matches('/'));
-            let body = otlp::export_request(&self.telemetry.service_name, spans);
-            if let Err(e) = post_json(&self.client, &url, otlp_headers, &body).await {
-                tracing::warn!(error = %e, "OTLP export failed");
-            }
-        }
         for alert in alerts {
             for url in &self.telemetry.webhooks {
                 let (client, url, alert) = (self.client.clone(), url.clone(), alert.clone());
@@ -258,6 +245,7 @@ mod tests {
             TelemetryConfig::default(),
             crate::client::build(),
             metrics,
+            None,
             None,
         );
         let mut live = rec.subscribe();

@@ -65,8 +65,9 @@ deterministic decision:
   links and SSRF targets, including through base64, hex and URL encoding.
 - **Controls.** Human approvals, a kill switch, token and call budgets,
   behaviour baselines per agent.
-- **Evidence.** A hash-chained, Ed25519-signed audit log, OpenTelemetry spans
-  and Prometheus metrics. Named users with roles, and every approval, kill
+- **Evidence.** A hash-chained, Ed25519-signed audit log, OpenTelemetry
+  traces, logs and metrics (continuing the agent's trace through to the
+  upstream), and Prometheus metrics. Named users with roles, and every approval, kill
   switch use, policy and user change in the same signed log, under their name.
 - **Exports.** Every decision and admin action to Splunk, Elasticsearch,
   syslog SIEMs (CEF), signed webhooks or files, as OCSF, ECS or JSON.
