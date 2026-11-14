@@ -30,26 +30,33 @@ the session (`pid:<n>`).
 | Backend | How it works | Needs | Misses |
 |---------|--------------|-------|--------|
 | `procfs` | Polls `/proc` every 500 ms: new processes, their open file descriptors and TCP connections | Nothing beyond read access to the agents' `/proc` entries (same user, or root) | Processes, files and connections that come and go between two polls |
-| `ebpf` | Kernel tracepoints on fork, exec, openat/openat2/open, connect and exit, delivered through a BPF ring buffer | A build with `--features ebpf` (x86_64 or aarch64), Linux 5.8+, root or `CAP_BPF` + `CAP_PERFMON` (on kernels before 5.8 there is no ring buffer) | Nothing it hooks, however short-lived |
+| `ebpf` | Kernel tracepoints on fork, exec, openat/openat2/open, connect and exit, delivered through a BPF ring buffer | The Linux x86_64 or aarch64 release binary (or a build with `--features ebpf`), Linux 5.8+, root or `CAP_BPF` + `CAP_PERFMON` (on kernels before 5.8 there is no ring buffer) | Nothing it hooks, however short-lived |
 | `auto` (default) | `ebpf` when the binary includes it and the program loads, otherwise `procfs` with an info log | | |
 
 An explicit `backend: ebpf` fails to start instead of falling back, which is
 what you want when the sensor is a requirement. The log line `host sensor
 started (ebpf backend)` (or `procfs backend`) shows which one runs.
 
-Build with the eBPF backend (needs `clang` and the libbpf headers; on
-Debian/Ubuntu `apt install clang llvm libbpf-dev`; set `CLANG` to use a
-specific compiler):
+The x86_64 and aarch64 Linux release binaries and container images include
+the eBPF backend; `nandi version` prints `(ebpf)` when it is built in. There
+is nothing else to install: the BPF program is compiled into the binary.
+
+```sh
+sudo nandi sense
+```
+
+Building from source, add `--features ebpf` (needs `clang` and the libbpf
+headers at build time; on Debian/Ubuntu `apt install clang llvm libbpf-dev`;
+set `CLANG` to use a specific compiler):
 
 ```sh
 cargo build --release -p nandi --features ebpf
-sudo ./target/release/nandi sense
 ```
 
 Instead of running as root, the binary can be given capabilities:
 
 ```sh
-sudo setcap cap_bpf,cap_perfmon,cap_dac_read_search,cap_sys_ptrace+ep ./target/release/nandi
+sudo setcap cap_bpf,cap_perfmon,cap_dac_read_search,cap_sys_ptrace+ep "$(command -v nandi)"
 ```
 
 `CAP_BPF` and `CAP_PERFMON` load and attach the programs,

@@ -1,0 +1,18 @@
+[package]
+name = "xtask"
+description = "Developer tasks for nandi: builds and checks the documentation website"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[dependencies]
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde-saphyr.workspace = true
+pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
+regex = "1"

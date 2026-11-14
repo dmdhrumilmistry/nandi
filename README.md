@@ -175,14 +175,16 @@ The same pages are published at <https://dmdhrumilmistry.github.io/nandi/>.
 ## Status
 
 nandi is pre-release. Everything listed above is implemented and tested in CI on
-Linux and macOS; interfaces may still change before 1.0. The eBPF sensor
-(`--features ebpf`) and the ONNX classifier (`--features ml`) are optional
-builds.
+Linux and macOS; interfaces may still change before 1.0. Everything ships in
+one binary (the eBPF sensor is included on Linux x86_64 and aarch64); only the
+ONNX classifier (`--features ml`) is an optional build.
 
 ## Contributing
 
 Issues and pull requests are welcome. `cargo test --workspace` runs the test
-suite and `cargo test -p nandi-eval -- --nocapture` the attack corpus. New
+suite, `cargo test -p nandi-eval -- --nocapture` the attack corpus, and
+`cargo xtask site` builds this documentation website (Rust only, no other
+toolchain). New
 attack or benign scenarios in `eval/scenarios` are especially useful.
 
 ## About the name
